@@ -1,10 +1,10 @@
-import { PROTECTED_KEYS, PRUNE_ENDPOINTS, PRUNE_RULES } from "./innertube.config.ts";
+import { PROTECTED_KEYS, PRUNE_ENDPOINTS, PRUNE_RULES, PRUNED_KEYS } from "./innertube.config.ts";
 
 /** JSON de una respuesta de InnerTube: el árbol que recorre la poda. */
 export type JsonObject = { readonly [key: string]: JsonValue };
 export type JsonValue = string | number | boolean | null | readonly JsonValue[] | JsonObject;
 
-const isJsonObject = (value: JsonValue): value is JsonObject =>
+const isJsonObject = (value: unknown): value is JsonObject =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const isJsonArray = (value: unknown): value is readonly JsonValue[] => Array.isArray(value);
@@ -213,14 +213,73 @@ export const installXhrPatch = (): void => {
 };
 
 /**
- * Se ejecuta al inyectarse el bundle de MAIN world; sin `window` (tests en Node) no hay nada
- * que envolver. Sin `eval` ni `new Function`: la CSP de YouTube los bloquearía.
+ * El carrier inline del watch page: el HTML trae `var ytInitialPlayerResponse = {…}`, así que la
+ * primera respuesta nunca pasa por `fetch` ni por XHR y la poda de red no la ve.
  */
-export const installInnerTubePatch = (): void => {
-  if (typeof window === "undefined") return;
+export const INLINE_CARRIER = "ytInitialPlayerResponse";
+
+/** Lo que el scriptlet publica en la página para que una carrera perdida sea verificable a mano. */
+export type InnerTubePatchStatus = { readonly carrierShadowed: boolean };
+
+/** Única forma del portador que nos interesa; `window` la cumple, un objeto llano de test también. */
+export type CarrierHost = { ytInitialPlayerResponse?: JsonValue; __blockAdsInnerTube?: InnerTubePatchStatus };
+
+declare global {
+  interface Window {
+    ytInitialPlayerResponse?: JsonValue;
+    __blockAdsInnerTube?: InnerTubePatchStatus;
+  }
+}
+
+/**
+ * Solo se poda si el valor es un objeto JSON, que es lo que la página serializa ahí. Cualquier otro
+ * valor pasa intacto: romperlo rompería la página.
+ */
+export const initialResponseValue = (raw: JsonValue | undefined, keys: readonly string[]): JsonValue | undefined =>
+  isJsonObject(raw) ? pruneAdKeys(raw, keys) : raw;
+
+/**
+ * Sustituye el carrier por un accesorio que poda en el momento de la asignación, antes de que el
+ * `<script>` inline de la página lo declare con `var`.
+ *
+ * Devuelve `false` sin tocar nada cuando la propiedad ya existe como no-configurable: se perdió la
+ * carrera y la poda inline no va a ocurrir.
+ */
+export const shadowInlineCarrier = (host: CarrierHost, keys: readonly string[]): boolean => {
+  const state: { value: JsonValue | undefined } = {
+    value: initialResponseValue(host.ytInitialPlayerResponse, keys),
+  };
+
+  try {
+    Object.defineProperty(host, INLINE_CARRIER, {
+      configurable: true,
+      enumerable: true,
+      get: () => state.value,
+      set: (raw: JsonValue | undefined) => {
+        state.value = initialResponseValue(raw, keys);
+      },
+    });
+
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Se ejecuta al inyectarse el bundle de MAIN world; sin `window` (tests en Node) no hay nada que
+ * envolver y se informa como no podado. Sin `eval` ni `new Function`: la CSP de YouTube los bloquea.
+ */
+export const installInnerTubePatch = (): InnerTubePatchStatus => {
+  if (typeof window === "undefined") return { carrierShadowed: false };
 
   installFetchPatch();
   installXhrPatch();
+
+  const status: InnerTubePatchStatus = { carrierShadowed: shadowInlineCarrier(window, PRUNED_KEYS) };
+  window.__blockAdsInnerTube = status;
+
+  return status;
 };
 
 installInnerTubePatch();

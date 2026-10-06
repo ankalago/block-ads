@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { isPrunedEndpoint, pruneResponsePayload, xhrShadows } from "./innertube.ts";
+import { PRUNED_KEYS } from "./innertube.config.ts";
+import {
+  type CarrierHost,
+  initialResponseValue,
+  isPrunedEndpoint,
+  pruneResponsePayload,
+  shadowInlineCarrier,
+  xhrShadows,
+} from "./innertube.ts";
 
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?key=AIzaSyFixture";
 const NEXT_URL = "https://www.youtube.com/youtubei/v1/next?key=AIzaSyFixture";
@@ -116,5 +124,71 @@ describe("sombreado de respuestas XHR", () => {
   it("no promete podas imposibles en responseType binario", () => {
     expect(xhrShadows("arraybuffer", pruned)).toEqual([]);
     expect(xhrShadows("blob", pruned)).toEqual([]);
+  });
+});
+
+describe("poda del carrier inline de la primera respuesta", () => {
+  const carrier = () => ({
+    videoDetails: { videoId: "dQw4w9WgXcQ" },
+    adPlacements: [{ kind: "AD_PLACEMENT_KIND_END" }],
+    playerAds: [{ format: "preroll" }],
+    adSlots: [{ slotId: "f0V3AVY6" }],
+    adBreakHeartbeatParams: "Q0FBJTNE",
+  });
+
+  it("devuelven el carrier sin claves de anuncio y con el heartbeat intacto", () => {
+    const result = initialResponseValue(carrier(), PRUNED_KEYS);
+
+    expect(key(result, "adBreakHeartbeatParams")).toBe("Q0FBJTNE");
+    expect(key(result, "videoDetails")).toEqual({ videoId: "dQw4w9WgXcQ" });
+    expect(view(result)).not.toHaveProperty("adPlacements");
+    expect(view(result)).not.toHaveProperty("playerAds");
+    expect(view(result)).not.toHaveProperty("adSlots");
+  });
+
+  it("no tocan valores que no son un objeto JSON", () => {
+    expect(initialResponseValue(undefined, PRUNED_KEYS)).toBeUndefined();
+    expect(initialResponseValue(null, PRUNED_KEYS)).toBeNull();
+    expect(initialResponseValue("hola", PRUNED_KEYS)).toBe("hola");
+    expect(initialResponseValue(42, PRUNED_KEYS)).toBe(42);
+    expect(initialResponseValue([carrier()], PRUNED_KEYS)).toEqual([carrier()]);
+  });
+
+  it("devuelven la misma referencia cuando no hay nada que podar", () => {
+    const clean = { videoDetails: { videoId: "x" } };
+
+    expect(initialResponseValue(clean, PRUNED_KEYS)).toBe(clean);
+  });
+
+  it("instalan el accesorio antes que la página y podan lo que esta asigna después", () => {
+    const host: CarrierHost = {};
+
+    expect(shadowInlineCarrier(host, PRUNED_KEYS)).toBe(true);
+    host.ytInitialPlayerResponse = carrier();
+
+    const seen = host.ytInitialPlayerResponse;
+    expect(view(seen)).not.toHaveProperty("playerAds");
+    expect(key(seen, "adBreakHeartbeatParams")).toBe("Q0FBJTNE");
+  });
+
+  it("podan también el valor que ya estaba asignado cuando la propiedad existía como dato", () => {
+    const host: CarrierHost = { ytInitialPlayerResponse: carrier() };
+
+    expect(shadowInlineCarrier(host, PRUNED_KEYS)).toBe(true);
+    expect(view(host.ytInitialPlayerResponse)).not.toHaveProperty("adPlacements");
+  });
+
+  it("informan que no pudieron instalarse si la propiedad ya es no-configurable, sin romper la página", () => {
+    const host: CarrierHost = {};
+    const existing = carrier();
+    Object.defineProperty(host, "ytInitialPlayerResponse", {
+      configurable: false,
+      enumerable: true,
+      value: existing,
+      writable: true,
+    });
+
+    expect(shadowInlineCarrier(host, PRUNED_KEYS)).toBe(false);
+    expect(host.ytInitialPlayerResponse).toBe(existing);
   });
 });
