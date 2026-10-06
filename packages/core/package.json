@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     "./rules": "./src/rules.ts",
-    "./parser": "./src/parser.ts"
+    "./parser": "./src/parser.ts",
+    "./dnr": "./src/dnr.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
