@@ -112,3 +112,55 @@ adSlots[0] = { adSlotRenderer: { adSlotMetadata: { slotId, slotType: "SLOT_TYPE_
 ```
 
 `adSlots` trae el dato de serving del anuncio, no solo metadatos inocuos: podarlo tiene efecto.
+
+## 7. Verificación funcional de la poda y la cosmética (bundle real, sin extensión cargada)
+
+Método: se ejecutó el contenido de `apps/block-ads/dist/innertube.js` y de
+`dist/cosmetics.css` directamente en la página mediante `Runtime.evaluate` (CDP), o sea en el
+MAIN world — el mismo mundo en que corre el content script del manifiesto. La hoja cosmética se
+aplicó como `<style>` real, no como estilos inline.
+
+### Poda InnerTube: control sin parche (misma sesión, misma página)
+
+```text
+carga inicial        placements:2 playerAds:1 slots:absent heartbeat:present play:OK
+loadVideoById(A)     placements:2 playerAds:1 slots:absent heartbeat:present play:OK
+loadVideoById(B)     placements:2 playerAds:1 slots:absent heartbeat:present play:OK
+```
+
+El ad serving no es determinista, así que sin este control la desaparición de las claves no sería
+atribuible: tres cargas consecutivas sin parche conservan `adPlacements` y `playerAds` siempre.
+
+### Poda InnerTube: con el bundle parchando la página
+
+```text
+antes de parchar     placements:2 playerAds:1 slots:absent heartbeat:present play:OK
+tras loadVideoById(A) placements:absent playerAds:absent slots:absent heartbeat:present play:OK
+tras loadVideoById(B) placements:absent playerAds:absent slots:absent heartbeat:present play:OK
+```
+
+Además, con el parche activo: `video.paused === false`, `duration 252.2 s`, `currentTime`
+avanzando. La poda elimina el payload que programa el corte **sin volver el video
+inreproducible**, y `adBreakHeartbeatParams` sobrevive intacto (longitud 8 en ambas fases).
+
+### Cosmética en home real (`https://www.youtube.com/`)
+
+| Selector | nodos | visibles antes | visibles después | `display` calculado |
+|---|---|---|---|---|
+| `ytd-ad-slot-renderer` | 1 | 1 (caja 1272×259) | 0 | `none` |
+| `#masthead-ad` | 2 | 1 (caja 1272×291) | 0 | `none` |
+| `ytd-in-feed-ad-layout-renderer` | 0 | 0 | 0 | sin nodo en home |
+| `video-ads ytp-ad-module` | 0 | 0 | 0 | sin nodo en home |
+| `ytp-ad-progress-list` | 0 | 0 | 0 | sin nodo en home |
+
+Control de daño colateral: `ytd-rich-item-renderer` (tarjetas de contenido orgánico) 34 antes,
+34 después. La hoja aplicó como `<style>` real (`injectedAsRealStylesheet: true`).
+
+### Lo que esta sección NO prueba
+
+- Que el empaquetado funcione: registro del content script `world: MAIN` en `document_start`,
+  activación del ruleset desde el manifiesto, y el bloqueo DNR en red. Eso requiere cargar la
+  extensión (`chrome://extensions`) y no se puede simular desde CDP.
+- Que un pre-roll desaparezca en pantalla: en estas corridas no llegó a reproducirse un anuncio,
+  así que se probó la eliminación del payload que lo programa, no su efecto visual.
+- Los selectores del overlay in-player y del botón de skip siguen sin verificar (§4).
