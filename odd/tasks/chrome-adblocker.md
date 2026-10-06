@@ -18,7 +18,7 @@ scriptlet engine beyond what YouTube needs, UI options beyond enable/disable.
 |---|---|---|---|
 | 1 | Recon YouTube: ad endpoints, InnerTube player keys, DNR limits | done | research, no artifact |
 | 2 | Scaffold: git, pnpm workspace, turbo, strict tsconfig, Biome, Vitest, Lefthook, commitlint | done | 89d320c |
-| 3 | core: rule IR + parser for the ABP filter subset | in progress | — |
+| 3 | core: rule IR + parser for the ABP filter subset | done | 0527501 |
 | 4 | core: compiler IR -> DNR ruleset, enforcing Chrome limits | pending | — |
 | 5 | apps/block-ads: MV3 manifest, service worker, popup, esbuild pipeline | pending | — |
 | 6 | YouTube rules: network (DNR) + cosmetic, verified in real DOM | pending | — |
@@ -40,10 +40,16 @@ scriptlet engine beyond what YouTube needs, UI options beyond enable/disable.
 
 ## Notes for the next session
 
-Task 3 is TDD in `packages/core`: describe the IR as Zod-free plain types (no runtime
-validation needed at the parser edge, but the parser must be pure and total), then the
-parser for the ABP subset. `AGENTS.md` bans `any`, type assertions, `let`, `enum`, barrels
-and `function` declarations; tests in Spanish, identifiers in English.
+Task 3 landed: `@block-ads/core` has the filter IR (`src/rules.ts`) and a pure parser
+(`src/parser.ts`, `parseFilterLine` / `parseFilterList`) with 90 Vitest tests. Design
+history and the closed semantics are in `odd/specs/filter-ir.md` (rondas 2 and 3 were
+corrections that removed over-blocking traps: `popup` no longer maps to `document`, scriptlet
+exceptions are preserved, procedural cosmetics no longer leak into the network path).
+
+Task 4 (DNR compiler) consumes the IR and never re-reads filter text. It must validate
+against Chrome limits: 30,000 static rules, 1,000 regex rules, RE2 only (no lookahead, no
+backreferences), and `urlFilter` length/anchoring rules. Filters the parser marked
+`unsupported` stay visible in the build report instead of being dropped silently.
 
 Run `pnpm check:ci` before considering anything done. `pnpm install` needs
 `pnpm approve-builds --all` once in a fresh clone (pnpm 12 blocks esbuild/lefthook builds).
