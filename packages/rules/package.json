@@ -3,7 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./lists/youtube.txt": "./lists/youtube.txt"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
   "devDependencies": {
-    "typescript": "^5.8.3"
+    "@block-ads/core": "workspace:*",
+    "@types/node": "^26.6.4",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
   }
 }

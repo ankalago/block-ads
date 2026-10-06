@@ -1,0 +1,39 @@
+! Block Ads — reglas de YouTube (MVP)
+! Fuente de verdad: odd/specs/youtube-evidence.md. Lo que no aparezca ahí es conocimiento
+! general y queda marcado explícitamente como NO VERIFICADO EN ESTA SESIÓN.
+
+! ---------------------------------------------------------------------------
+! Evidencia §6 (tráfico real de la página de watch): el endpoint que materializa
+! el corte de anuncios. getAdBreakUrl = https://www.youtube.com/get_midroll_info?ei=…
+! Se limita a xmlhttprequest porque la petición real del player es XHR/fetch: así
+! no puede tocar main_frame ni dejar la navegación top-level en blanco.
+! ---------------------------------------------------------------------------
+||youtube.com/get_midroll_info$xmlhttprequest
+
+! ---------------------------------------------------------------------------
+! Evidencia §6: hosts publicitarios observados en la sesión real.
+!   pagead2.googlesyndication.com  /activeview_ext
+!   ade.googlesyndication.com      /ddm/activity_ext/dc_pubid=…
+! domainAnchor sin tipo de recurso: Chrome excluye main_frame por defecto, de modo
+! que tampoco bloquean la navegación de documento.
+! ---------------------------------------------------------------------------
+||pagead2.googlesyndication.com^
+||ade.googlesyndication.com^
+
+! ---------------------------------------------------------------------------
+! NO VERIFICADO EN ESTA SESIÓN: conocimiento general, no observado en el tráfico
+! real de §6 (que no vio doubleclick.net ni googleadservices.com).
+! ---------------------------------------------------------------------------
+||doubleclick.net^
+||googleadservices.com^
+
+! ---------------------------------------------------------------------------
+! Evidencia §3 (selectores de cosmética verificados con anuncios en pantalla en
+! home y búsqueda). No se incluye ningún selector del overlay in-player: §4 lo
+! deja explícitamente sin verificar, y aquí no se inventan selectores.
+! ---------------------------------------------------------------------------
+youtube.com##ytd-ad-slot-renderer
+youtube.com##ytd-in-feed-ad-layout-renderer
+youtube.com###masthead-ad
+youtube.com##video-ads ytp-ad-module
+youtube.com##ytp-ad-progress-list

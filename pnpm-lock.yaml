@@ -193,6 +193,9 @@ importers:
       '@block-ads/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@block-ads/rules':
+        specifier: workspace:*
+        version: link:../../packages/rules
     devDependencies:
       '@types/chrome':
         specifier: ^0.3.4
@@ -221,9 +224,18 @@ importers:
 
   packages/rules:
     devDependencies:
+      '@block-ads/core':
+        specifier: workspace:*
+        version: link:../core
+      '@types/node':
+        specifier: ^26.6.4
+        version: 26.6.4
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@26.6.4)(jiti@2.6.1)
 
 packages:
 

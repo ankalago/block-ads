@@ -16,6 +16,12 @@ const JS_BUNDLES = [
 
 const COPIED_FILES = [{ from: "src/popup/popup.html", to: "popup.html" }];
 
+/** Listas consumidas cuando no se pasa `--filters`; `--filters` sigue teniendo prioridad. */
+const DEFAULT_FILTER_FILES = ["youtube.txt"];
+
+const defaultFilterFiles = () =>
+  DEFAULT_FILTER_FILES.map((name) => fileURLToPath(import.meta.resolve(`@block-ads/rules/lists/${name}`)));
+
 const EMPTY_ARGS = { filters: [], out: undefined, reading: undefined, help: false };
 
 const parseArgs = (argv) =>
@@ -94,11 +100,12 @@ const main = async () => {
   }
 
   const outDir = path.resolve(appRoot, args.out ?? "dist");
+  const filterFiles = args.filters.length > 0 ? args.filters : defaultFilterFiles();
   if (args.filters.length === 0) {
-    process.stderr.write("build: sin --filters; se emite un ruleset vacío\n");
+    process.stdout.write(`build: sin --filters; uso las listas de @block-ads/rules: ${filterFiles.join(", ")}\n`);
   }
 
-  const [pipeline, sources] = await Promise.all([loadPipeline(), readFilterSources(args.filters)]);
+  const [pipeline, sources] = await Promise.all([loadPipeline(), readFilterSources(filterFiles)]);
   const artifacts = pipeline.buildArtifacts(sources);
 
   process.stdout.write(`${pipeline.formatReport(artifacts.report)}\n`);

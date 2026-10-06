@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@block-ads/core": "workspace:*"
+    "@block-ads/core": "workspace:*",
+    "@block-ads/rules": "workspace:*"
   },
   "devDependencies": {
     "@types/chrome": "^0.3.4",
