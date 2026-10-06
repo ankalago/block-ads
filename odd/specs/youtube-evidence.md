@@ -71,3 +71,44 @@ muestra; si la tarea 6 los incluye, se marca como no verificado.
 La capa cosmética es **complemento**, no el bloqueo: con la poda de InnerTube el anuncio no
 llega a existir y el overlay no se renderiza. Los selectores verificados de home/búsqueda sí son
 necesarios porque esos slots no vienen de la player response.
+
+## 6. Tráfico real de la página de watch (verificado con `performance.getEntriesByType`)
+
+Hosts de red publicitaria que la página contactó de verdad en esta sesión:
+
+```text
+pagead2.googlesyndication.com   /activeview_ext
+ade.googlesyndication.com       /ddm/activity_ext/dc_pubid=…
+```
+
+Nada más apareció en esta muestra. `static.doubleclick.net`, `googleadservices.com` y
+`doubleclick.net` **no se observaron**: si la tarea 6 los incluye, van marcados como no
+verificados en esta sesión (son de conocimiento general, no de esta evidencia).
+
+### El endpoint que materializa el corte de anuncios
+
+`adPlacements[0].adPlacementRenderer.renderer.adBreakServiceRenderer` contiene:
+
+```text
+getAdBreakUrl = https://www.youtube.com/get_midroll_info?ei=…&m_pos=-1&token=…
+prefetchMilliseconds = 10000
+adPlacementConfig.kind = AD_PLACEMENT_KIND_END
+```
+
+O sea: `/get_midroll_info` es la request que devuelve el breakdown del anuncio. Da dos capas
+independientes:
+
+1. Si la poda de `adPlacements` funciona, el player nunca llega a pedir `/get_midroll_info`.
+2. Si la poda falla o YouTube la mueve de sitio, bloquear `||youtube.com/get_midroll_info` por
+   DNR sigue cortando el anuncio. Ese es el backstop de red, y ahora está justificado por
+   evidencia, no por imitar a uBlock.
+
+### Forma real de `adSlots`
+
+```text
+adSlots[0] = { adSlotRenderer: { adSlotMetadata: { slotId, slotType: "SLOT_TYPE_PLAYER_BYTES",
+          triggerEvent: "SLOT_TRIGGER_EVENT_BEFORE_CONTENT" },
+          fulfillmentContent: { fulfilledLayout: { playerBytesAdLayoutRenderer: … } } } }
+```
+
+`adSlots` trae el dato de serving del anuncio, no solo metadatos inocuos: podarlo tiene efecto.
