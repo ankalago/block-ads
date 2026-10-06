@@ -7,11 +7,11 @@
     },
     "test": {
       "dependsOn": ["typecheck"],
-      "inputs": ["src/**/*.ts", "src/**/*.test.ts"]
+      "inputs": ["src/**/*.ts", "src/**/*.test.ts", "../../packages/rules/lists/*.txt"]
     },
     "build": {
       "dependsOn": ["^build"],
-      "inputs": ["src/**/*.ts"],
+      "inputs": ["src/**/*.ts", "../../packages/rules/lists/*.txt"],
       "outputs": ["dist/**"]
     }
   }
