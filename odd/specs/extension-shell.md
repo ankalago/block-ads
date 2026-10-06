@@ -94,7 +94,11 @@ MVP: no hay redirects a recursos de la extensión.
 ## Service worker
 
 - `chrome.storage.local` guarda `rulesetCoreEnabled: boolean`.
-- En `onStartup`/`onInstalled`, sincroniza el estado guardado con `updateEnabledRulesets()`.
+- En `onStartup`/`onInstalled`, sincroniza el estado guardado con
+  `chrome.declarativeNetRequest.updateEnabledRulesets()`. La forma del objeto **no es
+  negociable** (confirmada en `@types/chrome` y la doc, `UpdateRulesetOptions`, Chrome 87+):
+  `{ enableRulesetIds?: string[], disableRulesetIds?: string[] }`. No existen
+  `enableRulesets`/`disableRulesets`; un id en ambas listas es error.
 - `popup.ts` lee y escribe ese flag con `chrome.storage` (sin mensajería propia: storage ya es
   el canal, y `chrome.storage.onChanged` notifica al SW).
 - Nada de worklets ni `offscreen` en el MVP.

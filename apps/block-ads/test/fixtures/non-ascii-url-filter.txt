@@ -1,0 +1,2 @@
+! fixture inválida: el host no ASCII produce un urlFilter que Chrome nunca casaría
+||canción.example^

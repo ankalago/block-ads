@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>Block Ads</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+
+      body {
+        font: 13px/1.4 system-ui, sans-serif;
+        margin: 12px;
+        min-width: 200px;
+      }
+
+      label {
+        align-items: center;
+        display: flex;
+        gap: 8px;
+      }
+
+      output {
+        color: color-mix(in srgb, currentColor 60%, transparent);
+        display: block;
+        margin-top: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <label>
+      <input id="ruleset-enabled" type="checkbox" />
+      Bloquear anuncios
+    </label>
+    <output id="state"></output>
+    <script src="popup.js"></script>
+  </body>
+</html>

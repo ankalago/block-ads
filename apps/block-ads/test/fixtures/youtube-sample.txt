@@ -1,0 +1,8 @@
+! fixture de build: bloqueos de red + cosméticos
+||ads.example.com^
+||doubleclick.example^$3p,script
+/tracker[0-9]+\.example\.net/
+youtube.com##.ad-banner
+youtube.com,www.youtube.com##.ytp-ad-overlay-slot
+www.youtube.com#@#.ad-banner
+news.example.com##.sponsored
