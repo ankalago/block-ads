@@ -19,8 +19,8 @@ scriptlet engine beyond what YouTube needs, UI options beyond enable/disable.
 | 1 | Recon YouTube: ad endpoints, InnerTube player keys, DNR limits | done | research, no artifact |
 | 2 | Scaffold: git, pnpm workspace, turbo, strict tsconfig, Biome, Vitest, Lefthook, commitlint | done | 89d320c |
 | 3 | core: rule IR + parser for the ABP filter subset | done | 0527501 |
-| 4 | core: compiler IR -> DNR ruleset, enforcing Chrome limits | pending | — |
-| 5 | apps/block-ads: MV3 manifest, service worker, popup, esbuild pipeline | pending | — |
+| 4 | core: compiler IR -> DNR ruleset, enforcing Chrome limits | done | 9ec85a8, b11ee24 |
+| 5 | apps/block-ads: MV3 manifest, service worker, popup, esbuild pipeline | in progress | — |
 | 6 | YouTube rules: network (DNR) + cosmetic, verified in real DOM | pending | — |
 | 7 | Load unpacked in Chrome and verify a real ad video is blocked | pending | — |
 
@@ -40,16 +40,24 @@ scriptlet engine beyond what YouTube needs, UI options beyond enable/disable.
 
 ## Notes for the next session
 
-Task 3 landed: `@block-ads/core` has the filter IR (`src/rules.ts`) and a pure parser
-(`src/parser.ts`, `parseFilterLine` / `parseFilterList`) with 90 Vitest tests. Design
-history and the closed semantics are in `odd/specs/filter-ir.md` (rondas 2 and 3 were
-corrections that removed over-blocking traps: `popup` no longer maps to `document`, scriptlet
-exceptions are preserved, procedural cosmetics no longer leak into the network path).
+Task 4 landed: `packages/core/src/dnr.ts` exposes `compileToDnrRules(filters)` →
+`{ rules, report }`, pure and deterministic, 55 tests. Chrome facts (limits, `priority`
+semantics, resource-type enum, `urlFilter` tokens) are cited in `odd/specs/dnr-compiler.md`.
+Two invariants worth keeping: exceptions compile to `allow` + `priority: 2` so a whitelist
+always beats our blocks, and any invalid rule sets `report.ok = false` so the build fails
+instead of shipping a ruleset Chrome would silently trim.
 
-Task 4 (DNR compiler) consumes the IR and never re-reads filter text. It must validate
-against Chrome limits: 30,000 static rules, 1,000 regex rules, RE2 only (no lookahead, no
-backreferences), and `urlFilter` length/anchoring rules. Filters the parser marked
-`unsupported` stay visible in the build report instead of being dropped silently.
+Task 5 is the MV3 shell in `apps/block-ads`: manifest with `declarative_net_request.rule_resources`,
+a service worker that owns the enabled rulesets, a popup toggle, and an esbuild pipeline that
+emits `rules.json` from `@block-ads/rules` through the compiler. Chrome rejects a ruleset whose
+rule ids collide or exceed the budget at load time, so the build must run the compiler and fail
+on `report.ok === false`.
+
+Task 3 landed: `@block-ads/core` has the filter IR (`src/rules.ts`) and a pure parser
+(`src/parser.ts`, `parseFilterLine` / `parseFilterList`). Design history and the closed
+semantics are in `odd/specs/filter-ir.md` (rondas 2 and 3 removed over-blocking traps:
+`popup` no longer maps to `document`, scriptlet exceptions are preserved, procedural
+cosmetics no longer leak into the network path).
 
 Run `pnpm check:ci` before considering anything done. `pnpm install` needs
 `pnpm approve-builds --all` once in a fresh clone (pnpm 12 blocks esbuild/lefthook builds).
