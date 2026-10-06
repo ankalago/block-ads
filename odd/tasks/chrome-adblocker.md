@@ -21,7 +21,7 @@ scriptlet engine beyond what YouTube needs, UI options beyond enable/disable.
 | 3 | core: rule IR + parser for the ABP filter subset | done | 0527501 |
 | 4 | core: compiler IR -> DNR ruleset, enforcing Chrome limits | done | 9ec85a8, b11ee24 |
 | 5 | apps/block-ads: MV3 manifest, service worker, popup, esbuild pipeline | done | d02e526 |
-| 6 | YouTube rules: network (DNR) + cosmetic, verified in real DOM | in progress | — |
+| 6 | YouTube rules: network (DNR) + cosmetic, verified in real DOM | done | 845fd74, 14c8e07 |
 | 7 | Load unpacked in Chrome and verify a real ad video is blocked | pending | — |
 
 ## Decisions
@@ -61,6 +61,28 @@ Verified by the parent: 35 extension tests + 145 core tests, `typecheck` clean, 
 
 Still unproven, by design: everything that needs real Chrome (that the InnerTube prune actually
 kills the pre-roll without breaking playback, and the in-player ad overlay selectors).
+
+## Task 6 close-out (845fd74, 14c8e07)
+
+The worker's report was substantially accurate, but two findings came from verifying it instead
+of trusting it:
+
+1. **The guard's document-safety was incidental.** Probing the list with an unrelated
+   `||s.ytimg.com\^$document` rule showed the existing test only protected `get_midroll_info`
+   (exact-shape comparison). A navigation-blocking rule on any other host would have shipped.
+   Added a principled test — no compiled rule may carry `main_frame` — proven RED by injecting
+   the bad rule and GREEN after removing it (6 rules tests now).
+2. **The reported turbo cache risk was real.** `build` and `test` hashed only `src/**/*.ts`, so
+   editing `packages/rules/lists/youtube.txt` replayed a cached run: the script itself picked the
+   new rule up (verified directly), Turbo did not, and `dist/rules.json` stayed stale. Fixed by
+   adding the lists to both tasks' inputs, verified by behaviour (list edit → new rule present in
+   `dist`), not by trusting cache-hit log wording.
+
+Rules shipped: 5 network (1 evidence-backed backstop `||youtube.com/get_midroll_info$xmlhttprequest`, 2 observed ad hosts, 2 general-knowledge hosts explicitly flagged
+`NO VERIFICADO EN ESTA SESIÓN` in the list) + 5 cosmetics (only the `youtube-evidence.md` §3
+selectors; the unverified in-player overlay/skip selectors stay out). Committed as one work unit
+because `pnpm-lock.yaml` is shared by the list package and the app wiring: splitting it would
+leave an intermediate state that is not `--frozen-lockfile` installable.
 
 ## Notes for the next session
 
