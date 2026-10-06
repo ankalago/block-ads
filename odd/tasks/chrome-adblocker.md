@@ -84,6 +84,23 @@ selectors; the unverified in-player overlay/skip selectors stay out). Committed 
 because `pnpm-lock.yaml` is shared by the list package and the app wiring: splitting it would
 leave an intermediate state that is not `--frozen-lockfile` installable.
 
+## Task 7 partial close-out (4e94242)
+
+Proven against real YouTube **without** the extension loaded, by running the built
+`dist/innertube.js` and `dist/cosmetics.css` through CDP in the MAIN world, with a no-patch
+control run so the result is attributable:
+
+- ad payload that schedules breaks (`adPlacements`, `playerAds`, `adSlots`) goes absent on every
+  load once patched, while `adBreakHeartbeatParams` survives and playback keeps running.
+- the two cosmetic selectors that exist on home (`ytd-ad-slot-renderer`, `#masthead-ad`) go
+  `display: none`, and organic content cards stay 34 before / 34 after.
+
+Needs Paul, because `chrome://extensions` cannot be reached programmatically: load
+`apps/block-ads/dist` unpacked, then verify (a) the manifest-registered MAIN-world script runs at
+`document_start`, (b) DNR actually blocks `/get_midroll_info` via `getMatchedRules` /
+`declarativeNetRequestFeedback`, (c) no pre-roll plays while the video still starts. Also record
+the in-player overlay and skip-button DOM during a real ad, which §4 left unverified.
+
 ## Notes for the next session
 
 Task 4 landed: `packages/core/src/dnr.ts` exposes `compileToDnrRules(filters)` →
