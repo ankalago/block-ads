@@ -22,7 +22,7 @@ scriptlet engine beyond what YouTube needs, UI options beyond enable/disable.
 | 4 | core: compiler IR -> DNR ruleset, enforcing Chrome limits | done | 9ec85a8, b11ee24 |
 | 5 | apps/block-ads: MV3 manifest, service worker, popup, esbuild pipeline | done | d02e526 |
 | 6 | YouTube rules: network (DNR) + cosmetic, verified in real DOM | done | 845fd74, 14c8e07 |
-| 7 | Load unpacked in Chrome and verify a real ad video is blocked | pending | — |
+| 7 | Load unpacked in Chrome and verify a real ad video is blocked | in_progress | c638867 |
 
 ## Decisions
 
@@ -100,6 +100,32 @@ Needs Paul, because `chrome://extensions` cannot be reached programmatically: lo
 `document_start`, (b) DNR actually blocks `/get_midroll_info` via `getMatchedRules` /
 `declarativeNetRequestFeedback`, (c) no pre-roll plays while the video still starts. Also record
 the in-player overlay and skip-button DOM during a real ad, which §4 left unverified.
+
+## Task 7 partial close-out (c638867)
+
+Loaded unpacked in Paul's Chrome. What the live data proved: `['core']` enabled, five rules
+installed (`330000 − 329995 = 5`, because `getAvailableStaticRuleCount` is the *remaining global
+budget*, not our own count), `ruleId 2`/`4` matched in `getMatchedRules`, and `getPlayerResponse()`
+came back `placements ABSENT / playerAds ABSENT / heartbeat string / play OK`.
+
+A pre-roll still played. Root cause, measured: on the initial watch load YouTube issues **zero**
+requests to `/youtubei/v1/player`; the first player response is written into the HTML as
+`var ytInitialPlayerResponse = {…}` (`configurable: false`, already carrying `adPlacements: 1`,
+`playerAds: 1`, `adSlots: 8`). A fetch/XHR patch cannot see a response that never crosses the
+network. The §7 verification in `odd/specs/youtube-evidence.md` used `loadVideoById()`, which is
+the *video-switch* path — that is why it looked green.
+
+Fix: `c638867` shadows the carrier with an accessor installed at `document_start` (static content
+scripts run before the page's inline scripts), pruning at assignment time, preserving
+`adBreakHeartbeatParams`, passing non-object values through, and returning `false` — not pretending
+— when the page won the race. It publishes `window.__blockAdsInnerTube = { carrierShadowed }` so a
+lost race is checkable instead of inferred.
+
+Still open for task 7, in the real Chrome after reloading the extension and the watch page:
+
+1. `__blockAdsInnerTube` → `{ carrierShadowed: true }`.
+2. A monetized video plays with no pre-roll.
+3. Task 8 (in-player overlay and skip button selectors) remains unverified and out of the rules.
 
 ## Notes for the next session
 
