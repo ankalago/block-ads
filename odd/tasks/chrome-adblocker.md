@@ -17,7 +17,7 @@ scriptlet engine beyond what YouTube needs, UI options beyond enable/disable.
 | # | Task | Status | Commit |
 |---|---|---|---|
 | 1 | Recon YouTube: ad endpoints, InnerTube player keys, DNR limits | done | research, no artifact |
-| 2 | Scaffold: git, pnpm workspace, turbo, strict tsconfig, Biome, Vitest, Lefthook, commitlint | done | see below |
+| 2 | Scaffold: git, pnpm workspace, turbo, strict tsconfig, Biome, Vitest, Lefthook, commitlint | done | 89d320c |
 | 3 | core: rule IR + parser for the ABP filter subset | in progress | — |
 | 4 | core: compiler IR -> DNR ruleset, enforcing Chrome limits | pending | — |
 | 5 | apps/block-ads: MV3 manifest, service worker, popup, esbuild pipeline | pending | — |
