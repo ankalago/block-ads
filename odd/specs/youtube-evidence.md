@@ -164,3 +164,49 @@ Control de daño colateral: `ytd-rich-item-renderer` (tarjetas de contenido org�
 - Que un pre-roll desaparezca en pantalla: en estas corridas no llegó a reproducirse un anuncio,
   así que se probó la eliminación del payload que lo programa, no su efecto visual.
 - Los selectores del overlay in-player y del botón de skip siguen sin verificar (§4).
+
+## 8. El carrier inline: por qué el pre-roll sobrevivía a la poda de red
+
+Medido en Chrome sobre un watch page, **sin** la extensión cargada (la estructura de la página no
+depende de la extensión, así que esta medición es válida aunque el Chrome medidor no tenga el
+`dist/` instalado):
+
+| Medición | Resultado |
+|---|---|
+| requests de carga a `/youtubei/v1/player` | **0** — el único endpoint InnerTube de la carga es `/youtubei/v1/log_event` |
+| descriptor de `window.ytInitialPlayerResponse` | `data`, `writable: true`, **`configurable: false`**, `enumerable: true` |
+| quién lo crea | el propio HTML: `var ytInitialPlayerResponse = {…}` (3 scripts de página lo mencionan) |
+| contenido del carrier en la carga inicial | `adPlacements: 1`, `playerAds: 1`, `adSlots: 8` |
+| `getPlayerResponse()` en esa misma carga | `placements: 1 playerAds: 1 slots: 8` |
+
+Consecuencia de diseño: la primera respuesta **nunca pasa por la red**, así que un parche de
+`fetch`/`XHR` no tiene nada que interceptar. La poda verificada en §7 se midió con
+`loadVideoById()`, que sí emite un request InnerTube: ese es el camino del **cambio de video**, no
+el de la **entrada a la página**. Por eso el pre-roll seguía sonando con todo lo demás verde.
+
+Fix: `c638867` instala un accesorio sobre el carrier a `document_start` (los content scripts
+estáticos se inyectan antes de ejecutar los `<script>` inline del documento), de modo que la
+asignación se poda en el momento y toda lectura posterior —incluido el bootstrap de la página— pasa
+por el getter. El `configurable: false` observado es la razón de que el orden importe: si la
+declaración `var` de la página llegara primero, `defineProperty` fallaría y la función lo informa
+devolviendo `false` en vez de fingir que podó.
+
+## 9. Verificación con la extensión cargada en el Chrome real
+
+Datos aportados por Paul desde su propia sesión de Chrome (el Chrome gobernado por DevTools MCP se
+lanza con `--disable-extensions`, así que allí las mediciones de extensión no valen):
+
+- scriptlet activo en la carga analizada: `placements ABSENT / playerAds ABSENT / heartbeat string /
+  playability OK`.
+- `getEnabledRulesets()` → `['core']`.
+- `getAvailableStaticRuleCount()` → `329995`. **No** es el conteo de reglas propias: la API devuelve
+  cuántas reglas estáticas se pueden habilitar antes del límite global (`@types/chrome`,
+  `getAvailableStaticRuleCount`). Con 330000 de cupo, `330000 − 329995 = 5` confirma que las 5 reglas
+  están instaladas y habilitadas.
+- `getMatchedRules({})` → entradas `{ruleId: 2}` (`||doubleclick.net^`) y `{ruleId: 4}`
+  (`||pagead2.googlesyndication.com^`). `ruleId 5` (`get_midroll_info`) nunca matcheó, coherente con
+  que el player no llegó a pedir el corte por esa vía.
+- **Aun así sonó un pre-roll**, y eso es lo que §8 explica y `c638867` cierra.
+
+Pendiente tras el fix: repetir en el Chrome real (recargar la extensión y el watch page)
+`__blockAdsInnerTube` → `{ carrierShadowed: true }` y comprobar que el pre-roll no aparece.
