@@ -26,6 +26,18 @@ Hechos de Chrome citados de la doc oficial (2026-10-06), no de memoria:
 4. **Poda conservadora**: solo se eliminan `adPlacements`, `adSlots` y `playerAds` de las
    respuestas JSON de `/youtubei/v1/player` y `/next`. `adBreakHeartbeatParams` **nunca** se
    toca: borrarlo deja el reproductor en estado no reproducible.
+5. **Nada de accesorio permanente en un global de la página.** El primer `ytInitialPlayerResponse`
+   llega serializado en el HTML (`var ytInitialPlayerResponse = {…}`), así que la poda de red no lo
+   ve y hay que interceptarlo. Un getter/setter que queda instalado es una huella detectable con
+   `Object.getOwnPropertyDescriptor` y activó el muro de "Ad blockers violate YouTube's ToS".
+   El accesorio se usa como **trampa de una sola escritura**: poda en el `set` y devuelve la
+   propiedad a la forma exacta del `var` de la página (`value`, `writable: true`, `enumerable:
+   true`, `configurable: false`). Si la página ya ganó la carrera la propiedad sigue *writable*: se
+   poda sobrescribiendo el valor y no se instala nada.
+6. **`dist/` es parte del entregable.** Paul carga la extensión unpacked desde
+   `apps/block-ads/dist`; un artefacto rancio hace que se pruebe código viejo con la apariencia de
+   una prueba válida. Antes de decir "recarga la extensión": `pnpm build` y comprobar que
+   `dist/innertube.js` contiene los símbolos nuevos (y que Turbo reportó *cache miss*).
 
 ## Manifest (`manifest.json`, MV3)
 
@@ -104,6 +116,12 @@ MVP: no hay redirects a recursos de la extensión.
 - Nada de worklets ni `offscreen` en el MVP.
 
 ## Verificación
+
+- El contrato de la trampa del carrier se prueba en Vitest con un objeto llano como portador:
+  tras la asignación de la página el descriptor **no** puede tener `get`/`set` y tiene que valer
+  `{ writable: true, configurable: false }`; y un carrier no-configurable *no writable* no se toca
+  (`carrierPruned: false`). Un test de regresión sobre la forma del descriptor es lo que impide
+  volver a dejar la huella que disparó el muro.
 
 - `innertube.ts` y `cosmetics.ts` son módulos puros en su parte de decisiones: la lógica de
   poda (qué claves se eliminan de un objeto de respuesta) se extrae a una función pura y se

@@ -115,17 +115,42 @@ requests to `/youtubei/v1/player`; the first player response is written into the
 network. The §7 verification in `odd/specs/youtube-evidence.md` used `loadVideoById()`, which is
 the *video-switch* path — that is why it looked green.
 
-Fix: `c638867` shadows the carrier with an accessor installed at `document_start` (static content
-scripts run before the page's inline scripts), pruning at assignment time, preserving
-`adBreakHeartbeatParams`, passing non-object values through, and returning `false` — not pretending
-— when the page won the race. It publishes `window.__blockAdsInnerTube = { carrierShadowed }` so a
-lost race is checkable instead of inferred.
+Fix v1, `c638867`: shadow the carrier with a permanent accessor installed at `document_start`
+(static content scripts run before the page's inline scripts), pruning at assignment time,
+preserving `adBreakHeartbeatParams`, passing non-object values through, and publishing
+`window.__blockAdsInnerTube` so a lost race is checkable instead of inferred.
+
+**Fix v1 caused task 9.** In the real browser YouTube answered with the enforcement wall — *"Ad
+blockers violate YouTube's Terms of Service"* — on the second video chosen from the home feed, with
+`playabilityStatus.status: "ERROR"` and the dialog rendered inside the player
+(`.ytp-mdx-popup-dialog`). Measured in `odd/specs/youtube-evidence.md` §10: the descriptor of
+`window.ytInitialPlayerResponse` flips `data → accessor` exactly when the scriptlet is active, and
+the classic `static.doubleclick.net/instream/ad_status.js` probe still loads, so it is not the
+trigger. A permanent get/set on a page global is a one-call fingerprint.
+
+Fix v2, `75688f7`: use the accessor as a **one-shot write trap**. On the first assignment it prunes
+and restores the property to the shape a page's `var` produces — data, `writable: true`,
+`enumerable: true`, `configurable: false` — so no fingerprint survives. Two behaviours the tests
+pinned:
+
+- If the page already declared the carrier, `var` leaves it *writable*, so the carrier is pruned by
+  overwriting the value without touching the descriptor. The first version returned `false` there
+  and did nothing; this was found by the RED run, not designed.
+- The status surface is now `{ accessorInstalled, carrierPruned }`: it distinguishes "lost the
+  race" from "pruned", which the old single flag conflated.
+
+Known limitation, accepted: after the heal the property is a plain writable data property, so a
+*second* page assignment is not pruned by the trap. Video switches go through
+`/youtubei/v1/player`, where the fetch/XHR patch prunes the same object before the page sees it —
+that path was measured green in §7.
 
 Still open for task 7, in the real Chrome after reloading the extension and the watch page:
 
-1. `__blockAdsInnerTube` → `{ carrierShadowed: true }`.
-2. A monetized video plays with no pre-roll.
-3. Task 8 (in-player overlay and skip button selectors) remains unverified and out of the rules.
+1. `Object.getOwnPropertyDescriptor(window, 'ytInitialPlayerResponse')` → `data`, `configurable:
+   false`, identical to the same page with the extension disabled.
+2. `__blockAdsInnerTube` → `{ accessorInstalled: true, carrierPruned: true }`.
+3. No wall, and no pre-roll, on the first video *and* on the next one chosen from the home feed.
+4. Task 8 (in-player overlay and skip button selectors) remains unverified and out of the rules.
 
 ## Notes for the next session
 
