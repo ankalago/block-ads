@@ -39,6 +39,10 @@
 ! ---------------------------------------------------------------------------
 @@||static.doubleclick.net/instream/ad_status.js$domain=youtube.com
 
+! Evidencia (Chrome real): ||doubleclick.net^ cortaba googleads.g.doubleclick.net/pagead/id;
+! uBO neutraliza ese fallo (filters.txt: /pagead/id redirect) porque es vector de detección. Se exceptúa solo ese recurso.
+@@||googleads.g.doubleclick.net/pagead/id$domain=youtube.com
+
 ! ---------------------------------------------------------------------------
 ! Evidencia §3 (selectores de cosmética verificados con anuncios en pantalla en
 ! home y búsqueda). No se incluye ningún selector del overlay in-player: §4 lo

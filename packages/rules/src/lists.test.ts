@@ -27,6 +27,18 @@ const networkFilters = (): readonly NetworkFilter[] =>
 const compiledRules = (): readonly DnrRule[] =>
   parsedLists().flatMap((entry) => compileToDnrRules(entry.list.filters.filter(isNetwork)).rules);
 
+/**
+ * Un `allow` sin ruta reabre el host publicitario entero. Se exige que el `urlFilter`
+ * tenga un `/` después de la parte de host, nunca solo el ancla de dominio.
+ */
+const isBareHostAnchor = (rule: DnrRule): boolean => {
+  const urlFilter = rule.condition.urlFilter;
+  if (urlFilter === undefined) return true;
+  const body = urlFilter.startsWith("||") ? urlFilter.slice(2) : urlFilter;
+  const separatorIndex = body.search(/[/^]/);
+  return separatorIndex === -1 || body[separatorIndex] !== "/";
+};
+
 const cosmeticSelectors = (): readonly string[] =>
   parsedLists().flatMap((entry) => entry.list.filters.filter(isCosmetic).map((filter) => filter.selector));
 
@@ -96,9 +108,11 @@ describe("listas de reglas del paquete @block-ads/rules", () => {
     const rules = compiledRules();
     const allowRules = rules.filter((rule) => rule.action.type === "allow");
 
-    expect(allowRules).toHaveLength(1);
+    expect(allowRules).toHaveLength(2);
 
-    const canary = allowRules.at(0);
+    const canary = allowRules.find(
+      (rule) => rule.condition.urlFilter === "||static.doubleclick.net/instream/ad_status.js",
+    );
 
     // El filtro debe ser exactamente el canary, no un patrón que reabra doubleclick.net.
     expect(canary?.condition.urlFilter).toBe("||static.doubleclick.net/instream/ad_status.js");
@@ -116,5 +130,32 @@ describe("listas de reglas del paquete @block-ads/rules", () => {
     );
 
     expect(doubleclickBlock?.condition.urlFilter).toBe("||doubleclick.net^");
+  });
+
+  // Segunda excepción: un fallo de /pagead/id es otro vector de detección (uBO lo
+  // neutraliza en uAssets). Se acota al recurso exacto y a páginas de YouTube.
+  it("permite el endpoint /pagead/id solo en YouTube y no reabre ningún host entero", () => {
+    const rules = compiledRules();
+    const allowRules = rules.filter((rule) => rule.action.type === "allow");
+
+    const pagead = allowRules.filter((rule) => rule.condition.urlFilter === "||googleads.g.doubleclick.net/pagead/id");
+
+    expect(pagead).toHaveLength(1);
+
+    const pageadRule = pagead.at(0);
+
+    expect(pageadRule?.condition.initiatorDomains).toEqual(["youtube.com"]);
+
+    const blockPriorities = rules.filter((rule) => rule.action.type === "block").map((rule) => rule.priority);
+
+    expect(pageadRule?.priority).toBeGreaterThan(Math.max(...blockPriorities));
+
+    // Propiedad de grupo: ninguna `allow` puede ser un ancla de host desnuda; debe
+    // nombrar una ruta, o una excepción reabriría un host publicitario entero.
+    const bareHostAnchors = allowRules
+      .filter(isBareHostAnchor)
+      .map((rule) => rule.condition.urlFilter ?? rule.condition.regexFilter ?? "<sin filtro>");
+
+    expect(bareHostAnchors, `reglas allow que reabren un host entero: ${bareHostAnchors.join(", ")}`).toEqual([]);
   });
 });
