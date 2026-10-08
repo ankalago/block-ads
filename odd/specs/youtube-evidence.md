@@ -435,3 +435,81 @@ Hipótesis sin verificar, ordenada por costo de prueba:
 3. **Inconsistencia del response podado**: `adBreakHeartbeatParams` no vacío con `adPlacements`
    ausentes. Nuestro spec decide preservar el heartbeat; si 1 y 2 no explican, se mide la variante
    consistente. Todavía no tenemos ni un solo dato sobre esto, así que va tercera.
+
+**Desenlace (mismo día, siguiente medición).** La 1 se **refuta por medición directa**: con
+`fingerprint_en_window: false` el muro sigue ahí, bloqueando la reproducción. Queda documentado en §14.
+
+## 14. El muro es real y corta la reproducción: el delator restante es `/pagead/id` (2026-10-08)
+
+Con `c0f351c` cargado, el mismo video:
+
+```json
+{ "servidor_status": "OK", "servidor_adPlacements": 0, "player_status": "ERROR",
+  "reason": null, "mensaje": null, "placements": "ABSENT", "heartbeat": "no-vacio",
+  "fingerprint_en_window": false }
+```
+
+Y el probe de UI, confirmado con captura de pantalla:
+
+```json
+{ "video": { "paused": true, "currentTime": 0, "duration": null, "src": "" },
+  "adState": -1, "ytp_error": null,
+  "nodos_texto_adblock": [
+    { "visible": true, "text": "Ad blockers violate YouTube's Terms of Service" },
+    { "visible": true, "text": "It looks like you may be using an ad blocker. Video playback is blocked unless YouTube is " },
+    { "visible": true, "text": "Not using an ad blocker?" } ] }
+```
+
+### El detector de muros que estaba usando estaba mal
+
+Medía `muro_visible` con `.ytp-mdx-popup-dialog` — un selector sacado de una observación vieja que **no es el
+cartel del ad-blocker**: devolvía `false` con el muro en pantalla. Los nodos del cartel no tienen clase útil
+(`cls: ""`), así que la señal robusta es el texto.
+
+**Regla**: detectar el muro por su texto y por `video.currentSrc` vacío. Nunca por una clase adivinada, y
+`player_status: ERROR` sin `reason` ni `mensaje` tampoco prueba nada solo.
+
+### Estado de los candidatos después de refutar dos más
+
+| Candidato | Estado |
+|---|---|
+| podar el carrier inline | necesario pero **no suficiente**: con DNR OFF y podado, sin muro |
+| descriptor persistente en `ytInitialPlayerResponse` | refutado (§10) |
+| canary `ad_status.js` | refutada como única delatora (§12) |
+| nuestro global `__blockAdsInnerTube` | **refutado por medición directa** (§14) |
+| red (DNR) | **necesario**: sin DNR, con todo lo demás igual, no hay muro |
+
+La pareja que discrimina, cruzando la tabla de §11 con la medición de hoy:
+
+| `ad_status.js` | `pagead/id` | resultado |
+|---|---|---|
+| bloqueado | bloqueado | muro |
+| permitido | bloqueado | **muro** (hoy) |
+| permitido | permitido | sin muro (fila DNR OFF de §8) |
+
+En la sesión murada el único request que DNR corta es `googleads.g.doubleclick.net/pagead/id` (2 hits), y es obra
+de `||doubleclick.net^` — regla que **nuestra propia lista marca como NO VERIFICADA**: conocimiento general ancho
+que resultó disparar el muro.
+
+uBO no tiene excepción para YouTube en esa URL, pero neutraliza el fallo con
+`||doubleclick.net/pagead/id$xhr,redirect=nooptext,domain=windowsreport.com` en su `filters.txt`: un `redirect` de
+cuerpo vacío que **DNR no puede hacer**. Nosotros no podemos fingir el cuerpo, así que la única vía con DNR puro es
+no matar el request.
+
+### Primer dato de la inconsistencia del heartbeat
+
+`heartbeat: "no-vacio"` con `placements: "ABSENT"`, medido en una sesión murada. La combinación que sospechaba
+existe; esto no prueba causalidad (también aparece en las sesiones sin muro de §7), pero es el candidato siguiente.
+
+### El experimento que envía esta sección
+
+`cfe56d4` agrega `@@||googleads.g.doubleclick.net/pagead/id$domain=youtube.com` (ahora hay 2 excepciones). La
+prueba nueva fija una **propiedad de grupo**: ninguna regla `allow` puede ser un ancla de host desnuda — tiene que
+nombrar una ruta, si no una excepción reabriría el host publicitario entero. Verificado a mano: metiendo
+`@@||doubleclick.net^$domain=youtube.com` falla con `reglas allow que reabren un host entero: ||doubleclick.net^`;
+restaurada, 8/8.
+
+Qué esperamos en Chrome real: **sin muro**. La segunda pregunta es la buena: **¿aparece pre-roll?** Con el carrier
+inline y el `/player` podados no debería haber anuncios que servir — `pagead/id` es un ping de identidad, no el
+medio del anuncio. Si aparece pre-roll, muro y pre-roll están acoplados y hay que resolverlo por otra vía (la 3:
+consistencia del response podado).

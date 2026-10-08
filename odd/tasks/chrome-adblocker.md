@@ -201,6 +201,53 @@ Still open for task 7, in the real Chrome after reloading the extension and the 
 3. No wall, and no pre-roll, on the first video *and* on the next one chosen from the home feed.
 4. Task 8 (in-player overlay and skip button selectors) remains unverified and out of the rules.
 
+## Wall investigation close-out (fd0b0ea -> c0f351c -> cfe56d4)
+
+The ad-blocker enforcement wall ("Ad blockers violate YouTube's Terms of Service", playback blocked) was chased
+one variable at a time in the human's real Chrome. Full measurements in `odd/specs/youtube-evidence.md` §12-§14.
+
+Candidates refuted by direct measurement:
+
+| Candidate | Status | Evidence |
+|---|---|---|
+| permanent accessor left on `ytInitialPlayerResponse` | refuted | descriptor is `data`, `configurable: false`, wall remains (75688f7) |
+| `ad_status.js` canary blocked (sets `window.google_ad_status`) | refuted as the *only* tell | canary allowed, `google_ad_status: number`, wall remains (fd0b0ea) |
+| our own page-readable global `window.__blockAdsInnerTube` | refuted | `fingerprint_en_window: false`, wall remains (c0f351c) |
+| network layer (DNR) | **required for the wall** | with the ruleset disabled and pruning active, no wall |
+
+Crossing that with the older truth table leaves one request killed in the walled session:
+`googleads.g.doubleclick.net/pagead/id`, hit by `||doubleclick.net^` — the rule our own list flagged *NOT
+VERIFIED IN THIS SESSION*. uBlock Origin neutralises a failing `/pagead/id` with `redirect=nooptext` (uAssets
+`filters.txt`, seen at `domain=windowsreport.com`), which declarativeNetRequest cannot do: it cannot fake a
+response body. So the only MV3-pure option is to stop killing the request.
+
+`cfe56d4` adds `@@||googleads.g.doubleclick.net/pagead/id$domain=youtube.com`. Compiled ruleset: 7 rules, 5 blocks,
+2 exceptions. The new test pins a group property, not an exact list: **no `allow` rule may be a bare host anchor**,
+it must name a path, otherwise a future exception could re-open an entire advertising host. Proven by hand — adding
+`@@||doubleclick.net^$domain=youtube.com` fails with `reglas allow que reabren un host entero: ||doubleclick.net^`.
+rules 8, core 145, extension 66, `pnpm check:ci` exit 0.
+
+### Lesson recorded so we do not repeat it
+
+An unverified "general knowledge" network rule over a Google host was enough to break playback while the ad media
+endpoints stayed blocked. Broad host-anchor rules marked unverified must be treated as suspects for any playback
+bug, not as innocent background. **When a new blocking rule goes into the list, it needs the evidence line that
+justifies it, or it does not go in.**
+
+Also: a wall detector keyed on a guessed CSS class silently returned "no wall" while the wall was on screen. The
+wall text nodes have no usable class. Detect the wall by its text and by an empty `video.currentSrc`.
+
+### Still to measure with `cfe56d4` loaded
+
+1. Does the wall drop? (the experiment's actual question)
+2. **If it does: does a pre-roll play anyway?** `pagead/id` is an identity ping, not ad media, and the inline
+   carrier plus `/player` responses are pruned, so the expectation is no pre-roll. If a pre-roll does appear, the
+   wall and the pre-roll are coupled and the remaining hypothesis is the pruned-response inconsistency:
+   `adBreakHeartbeatParams` non-empty with `adPlacements` absent — measured for the first time in a walled session
+   (`heartbeat: no-vacio`, `placements: ABSENT`). Testing that variant means revisiting the `extension-shell.md`
+   §6 decision to always preserve the heartbeat, so it needs an explicit decision from Paul.
+3. Cosmetic ads in home/search and in-player overlay selectors (task 8) are still unverified.
+
 ## Notes for the next session
 
 Task 4 landed: `packages/core/src/dnr.ts` exposes `compileToDnrRules(filters)` →
