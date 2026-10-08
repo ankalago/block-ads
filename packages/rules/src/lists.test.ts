@@ -87,4 +87,34 @@ describe("listas de reglas del paquete @block-ads/rules", () => {
 
     expect(unsafe.map((rule) => rule.condition.urlFilter ?? rule.condition.regexFilter)).toEqual([]);
   });
+
+  // Canary clásico de detección de ad-blocker de YouTube: `ad_status.js` solo
+  // establece `window.google_ad_status = 1`, y bloquearlo es lo que dispara la
+  // pared "Ad blockers violate YouTube's ToS" (decidida por el player). Se deja
+  // pasar solo ese recurso; el resto de doubleclick.net sigue bloqueado.
+  it("permite el canary ad_status.js de YouTube y conserva el resto de doubleclick.net bloqueado", () => {
+    const rules = compiledRules();
+    const allowRules = rules.filter((rule) => rule.action.type === "allow");
+
+    expect(allowRules).toHaveLength(1);
+
+    const canary = allowRules.at(0);
+
+    // El filtro debe ser exactamente el canary, no un patrón que reabra doubleclick.net.
+    expect(canary?.condition.urlFilter).toBe("||static.doubleclick.net/instream/ad_status.js");
+    // Acotado a páginas de YouTube mediante `$domain=youtube.com` → initiatorDomains.
+    expect(canary?.condition.initiatorDomains).toEqual(["youtube.com"]);
+
+    // La `allow` debe ganar a todo `block`, en particular a `||doubleclick.net^`.
+    const blockPriorities = rules.filter((rule) => rule.action.type === "block").map((rule) => rule.priority);
+
+    expect(canary?.priority).toBeGreaterThan(Math.max(...blockPriorities));
+
+    // `||doubleclick.net^` sigue presente y sigue cubriendo googleads.g.doubleclick.net.
+    const doubleclickBlock = rules.find(
+      (rule) => rule.action.type === "block" && rule.condition.urlFilter?.includes("doubleclick.net"),
+    );
+
+    expect(doubleclickBlock?.condition.urlFilter).toBe("||doubleclick.net^");
+  });
 });

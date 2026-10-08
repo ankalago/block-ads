@@ -28,6 +28,18 @@
 ||googleadservices.com^
 
 ! ---------------------------------------------------------------------------
+! Evidencia (Chrome real, extensión sin empaquetar): el dump de peticiones
+! bloqueadas mostró ||doubleclick.net^ cortando
+! https://static.doubleclick.net/instream/ad_status.js; con ello google_ad_status
+! quedó "undefined" y playabilityStatus en ERROR mientras el HTML de /watch decía
+! OK. La pared "Ad blockers violate YouTube's ToS" la decide el player en cliente
+! y ad_status.js es el canary clásico: solo pone window.google_ad_status = 1.
+! Se exceptúa únicamente ese recurso; el resto de doubleclick.net sigue bloqueado
+! (p. ej. googleads.g.doubleclick.net/pagead/id).
+! ---------------------------------------------------------------------------
+@@||static.doubleclick.net/instream/ad_status.js$domain=youtube.com
+
+! ---------------------------------------------------------------------------
 ! Evidencia §3 (selectores de cosmética verificados con anuncios en pantalla en
 ! home y búsqueda). No se incluye ningún selector del overlay in-player: §4 lo
 ! deja explícitamente sin verificar, y aquí no se inventan selectores.
