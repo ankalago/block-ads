@@ -1,3 +1,4 @@
+import { installMatchedDebugRecorder } from "./dnr-debug.ts";
 import { RULESET_CORE_STORAGE_KEY, rulesetUpdate, storedRulesetEnabled } from "./ruleset.ts";
 
 const applyRuleset = async (enabled: boolean): Promise<void> => {
@@ -10,6 +11,8 @@ const syncRuleset = async (): Promise<void> => {
 
   await applyRuleset(storedRulesetEnabled(stored[RULESET_CORE_STORAGE_KEY]));
 };
+
+installMatchedDebugRecorder();
 
 chrome.runtime.onStartup.addListener(() => {
   void syncRuleset();
