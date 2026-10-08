@@ -226,7 +226,15 @@ export const INLINE_CARRIER = "ytInitialPlayerResponse";
 export type CarrierStatus = { accessorInstalled: boolean; carrierPruned: boolean };
 
 /** Única forma del portador que nos interesa; `window` la cumple, un objeto llano de test también. */
-export type CarrierHost = { ytInitialPlayerResponse?: JsonValue; __blockAdsInnerTube?: CarrierStatus };
+export type CarrierHost = { ytInitialPlayerResponse?: JsonValue };
+
+/**
+ * Telemetría opt-in: el estado solo se publica si la URL trae este token, porque un global legible
+ * por la página es una huella que cualquier script de YouTube puede comprobar.
+ */
+export const DEBUG_PARAM = "blockadsdebug";
+
+export const shouldPublishStatus = (search: string): boolean => search.includes(DEBUG_PARAM);
 
 declare global {
   interface Window {
@@ -307,7 +315,7 @@ export const installInnerTubePatch = (): CarrierStatus => {
   installXhrPatch();
 
   const status = carrierStatusSeed();
-  window.__blockAdsInnerTube = status;
+  if (shouldPublishStatus(window.location.search)) window.__blockAdsInnerTube = status;
   shadowInlineCarrier(window, PRUNED_KEYS, status);
 
   return status;

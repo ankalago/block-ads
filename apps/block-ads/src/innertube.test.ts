@@ -4,11 +4,13 @@ import {
   type CarrierHost,
   type CarrierStatus,
   carrierStatusSeed,
+  DEBUG_PARAM,
   INLINE_CARRIER,
   initialResponseValue,
   isPrunedEndpoint,
   pruneResponsePayload,
   shadowInlineCarrier,
+  shouldPublishStatus,
   xhrShadows,
 } from "./innertube.ts";
 
@@ -313,5 +315,42 @@ describe("el carrier inline vuelve a ser data property después de podarlo", () 
 
   it("seed de estado arranca sin trampa ni poda", () => {
     expect(carrierStatusSeed()).toEqual({ accessorInstalled: false, carrierPruned: false });
+  });
+});
+
+describe("telemetría de estado opt-in por token de URL", () => {
+  it("publica con el token de depuración presente", () => {
+    expect(shouldPublishStatus("?blockadsdebug=1")).toBe(true);
+  });
+
+  it("publica con el token en cualquier posición de la query", () => {
+    expect(shouldPublishStatus("?v=x&blockadsdebug")).toBe(true);
+  });
+
+  it("no publica con query vacía", () => {
+    expect(shouldPublishStatus("")).toBe(false);
+  });
+
+  it("no publica en un watch normal de YouTube", () => {
+    expect(shouldPublishStatus("?v=dQw4w9WgXcQ")).toBe(false);
+  });
+
+  it("fija el nombre del token para que no se renombre por accidente", () => {
+    expect(DEBUG_PARAM).toBe("blockadsdebug");
+  });
+
+  it("no añade la clave de telemetría al host al podar el carrier", () => {
+    const host: CarrierHost = {
+      ytInitialPlayerResponse: {
+        videoDetails: { videoId: "dQw4w9WgXcQ" },
+        adPlacements: [{ kind: "AD_PLACEMENT_KIND_END" }],
+        adBreakHeartbeatParams: "Q0FBJTNE",
+      },
+    };
+    const status = carrierStatusSeed();
+
+    shadowInlineCarrier(host, PRUNED_KEYS, status);
+
+    expect(Object.keys(host)).not.toContain("__blockAdsInnerTube");
   });
 });
