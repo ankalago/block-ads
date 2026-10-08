@@ -237,7 +237,7 @@ indicador observable que coincide con el fallo es el descriptor: un getter/sette
 (sigue viendo `data` porque la detección ocurre en la navegación SPA), así que la firma del
 accesorio es el vector probable, no demostrado como único.
 
-**Década (elegida por Paul).** Poda inline **sin dejar huella de accesorio**: el accesorio se usa
+**Decisión (elegida por Paul).** Poda inline **sin dejar huella de accesorio**: el accesorio se usa
 como trampa de **una sola escritura** y, en cuanto la página asigna el carrier, la propiedad se
 restablece como data property con la forma exacta de un `var` global
 (`writable: true, enumerable: true, configurable: false`). Si la página ya ganó la carrera, `var`
