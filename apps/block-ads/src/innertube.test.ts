@@ -2,12 +2,28 @@ import { describe, expect, it } from "vitest";
 import { PRUNED_KEYS } from "./innertube.config.ts";
 import {
   type CarrierHost,
+  type CarrierStatus,
+  carrierStatusSeed,
+  INLINE_CARRIER,
   initialResponseValue,
   isPrunedEndpoint,
   pruneResponsePayload,
   shadowInlineCarrier,
   xhrShadows,
 } from "./innertube.ts";
+
+/** Forma observable del descriptor: data property de `var` frente a accesorio. */
+const carrierDescriptor = (host: CarrierHost) => {
+  const descriptor = Object.getOwnPropertyDescriptor(host, INLINE_CARRIER);
+
+  return {
+    accessors:
+      descriptor === undefined ? "sin-descriptor" : "get" in descriptor || "set" in descriptor ? "accesorio" : "dato",
+    value: descriptor === undefined ? "sin-descriptor" : "value" in descriptor ? "presente" : "ausente",
+    writable: descriptor?.writable,
+    configurable: descriptor?.configurable,
+  };
+};
 
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?key=AIzaSyFixture";
 const NEXT_URL = "https://www.youtube.com/youtubei/v1/next?key=AIzaSyFixture";
@@ -160,10 +176,11 @@ describe("poda del carrier inline de la primera respuesta", () => {
     expect(initialResponseValue(clean, PRUNED_KEYS)).toBe(clean);
   });
 
-  it("instalan el accesorio antes que la página y podan lo que esta asigna después", () => {
+  it("instalan antes que la página y podan lo que esta asigna después", () => {
     const host: CarrierHost = {};
+    const status = carrierStatusSeed();
 
-    expect(shadowInlineCarrier(host, PRUNED_KEYS)).toBe(true);
+    expect(shadowInlineCarrier(host, PRUNED_KEYS, status)).toBe(true);
     host.ytInitialPlayerResponse = carrier();
 
     const seen = host.ytInitialPlayerResponse;
@@ -173,14 +190,17 @@ describe("poda del carrier inline de la primera respuesta", () => {
 
   it("podan también el valor que ya estaba asignado cuando la propiedad existía como dato", () => {
     const host: CarrierHost = { ytInitialPlayerResponse: carrier() };
+    const status = carrierStatusSeed();
 
-    expect(shadowInlineCarrier(host, PRUNED_KEYS)).toBe(true);
+    expect(shadowInlineCarrier(host, PRUNED_KEYS, status)).toBe(false);
+    expect(status.carrierPruned).toBe(true);
     expect(view(host.ytInitialPlayerResponse)).not.toHaveProperty("adPlacements");
   });
 
-  it("informan que no pudieron instalarse si la propiedad ya es no-configurable, sin romper la página", () => {
+  it("informan que no instalaron la trampa si la propiedad ya estaba declarada, y aun así podan", () => {
     const host: CarrierHost = {};
     const existing = carrier();
+    const status = carrierStatusSeed();
     Object.defineProperty(host, "ytInitialPlayerResponse", {
       configurable: false,
       enumerable: true,
@@ -188,7 +208,110 @@ describe("poda del carrier inline de la primera respuesta", () => {
       writable: true,
     });
 
-    expect(shadowInlineCarrier(host, PRUNED_KEYS)).toBe(false);
+    expect(shadowInlineCarrier(host, PRUNED_KEYS, status)).toBe(false);
+    expect(status.carrierPruned).toBe(true);
+    expect(view(host.ytInitialPlayerResponse)).not.toHaveProperty("adPlacements");
+  });
+
+  it("no tocan un carrier no-configurable y no-writable, y avisan que no podaron", () => {
+    const host: CarrierHost = {};
+    const existing = carrier();
+    const status = carrierStatusSeed();
+    Object.defineProperty(host, "ytInitialPlayerResponse", {
+      configurable: false,
+      enumerable: true,
+      value: existing,
+      writable: false,
+    });
+
+    expect(shadowInlineCarrier(host, PRUNED_KEYS, status)).toBe(false);
+    expect(status.carrierPruned).toBe(false);
     expect(host.ytInitialPlayerResponse).toBe(existing);
+  });
+});
+
+describe("el carrier inline vuelve a ser data property después de podarlo", () => {
+  const carrier = () => ({
+    videoDetails: { videoId: "dQw4w9WgXcQ" },
+    adPlacements: [{ kind: "AD_PLACEMENT_KIND_END" }],
+    playerAds: [{ format: "preroll" }],
+    adSlots: [{ slotId: "f0V3AVY6" }],
+    adBreakHeartbeatParams: "Q0FBJTNE",
+  });
+
+  // La página declara el carrier con `var` a nivel global: data property, writable, enumerable,
+  // no configurable. Dejar un accesorio get/set es una huella trivialmente detectable, y el muro
+  // "Ad blockers violate YouTube's ToS" (.ytp-mdx-popup-dialog, playabilityStatus ERROR) apareció
+  // justo cuando esa fue la técnica. Ver odd/specs/youtube-evidence.md §10.
+  const varShape = { accessors: "dato", value: "presente", writable: true, configurable: false };
+
+  it("restauran la forma exacta de un var global tras la asignación de la página", () => {
+    const host: CarrierHost = {};
+    const status = carrierStatusSeed();
+
+    shadowInlineCarrier(host, PRUNED_KEYS, status);
+    host.ytInitialPlayerResponse = carrier();
+
+    expect(carrierDescriptor(host)).toEqual(varShape);
+  });
+
+  it("mantienen el descriptor de dato aunque la página lea el carrier después de asignarlo", () => {
+    const host: CarrierHost = {};
+    const status = carrierStatusSeed();
+
+    shadowInlineCarrier(host, PRUNED_KEYS, status);
+    host.ytInitialPlayerResponse = carrier();
+    expect(host.ytInitialPlayerResponse).toBeDefined();
+
+    expect(carrierDescriptor(host)).toEqual(varShape);
+  });
+
+  it("no dejan restos de accesorio: ni get ni set visibles en la propiedad", () => {
+    const host: CarrierHost = {};
+    const status = carrierStatusSeed();
+
+    shadowInlineCarrier(host, PRUNED_KEYS, status);
+    host.ytInitialPlayerResponse = carrier();
+
+    const descriptor = Object.getOwnPropertyDescriptor(host, INLINE_CARRIER);
+    expect("get" in (descriptor ?? {})).toBe(false);
+    expect("set" in (descriptor ?? {})).toBe(false);
+  });
+
+  it("informan accessorInstalled solo cuando se ganó la carrera, y carrierPruned al podar", () => {
+    const host: CarrierHost = {};
+    const status = carrierStatusSeed();
+
+    expect(shadowInlineCarrier(host, PRUNED_KEYS, status)).toBe(true);
+    expect(status).toEqual({ accessorInstalled: true, carrierPruned: false });
+
+    host.ytInitialPlayerResponse = carrier();
+    expect(status).toEqual({ accessorInstalled: true, carrierPruned: true });
+  });
+
+  it("restauran en el acto cuando el carrier ya venía asignado al instalarse", () => {
+    const host: CarrierHost = { ytInitialPlayerResponse: carrier() };
+    const status: CarrierStatus = carrierStatusSeed();
+
+    expect(shadowInlineCarrier(host, PRUNED_KEYS, status)).toBe(false);
+
+    expect(carrierDescriptor(host)).toEqual(varShape);
+    expect(status.carrierPruned).toBe(true);
+    expect(view(host.ytInitialPlayerResponse)).not.toHaveProperty("adPlacements");
+  });
+
+  it("restauran sin podar un valor que no es un objeto JSON", () => {
+    const host: CarrierHost = {};
+    const status = carrierStatusSeed();
+
+    shadowInlineCarrier(host, PRUNED_KEYS, status);
+    host.ytInitialPlayerResponse = "ok";
+
+    expect(host.ytInitialPlayerResponse).toBe("ok");
+    expect(carrierDescriptor(host)).toEqual(varShape);
+  });
+
+  it("seed de estado arranca sin trampa ni poda", () => {
+    expect(carrierStatusSeed()).toEqual({ accessorInstalled: false, carrierPruned: false });
   });
 });

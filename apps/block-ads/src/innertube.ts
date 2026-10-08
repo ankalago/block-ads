@@ -218,18 +218,35 @@ export const installXhrPatch = (): void => {
  */
 export const INLINE_CARRIER = "ytInitialPlayerResponse";
 
-/** Lo que el scriptlet publica en la página para que una carrera perdida sea verificable a mano. */
-export type InnerTubePatchStatus = { readonly carrierShadowed: boolean };
+/**
+ * Lo que el scriptlet publica en la página para que una carrera perdida sea verificable a mano.
+ * `accessorInstalled`: se ganó la carrera y se instaló la trampa de una sola escritura.
+ * `carrierPruned`: el carrier terminó podado, por la trampa o por sobrescritura directa.
+ */
+export type CarrierStatus = { accessorInstalled: boolean; carrierPruned: boolean };
 
 /** Única forma del portador que nos interesa; `window` la cumple, un objeto llano de test también. */
-export type CarrierHost = { ytInitialPlayerResponse?: JsonValue; __blockAdsInnerTube?: InnerTubePatchStatus };
+export type CarrierHost = { ytInitialPlayerResponse?: JsonValue; __blockAdsInnerTube?: CarrierStatus };
 
 declare global {
   interface Window {
     ytInitialPlayerResponse?: JsonValue;
-    __blockAdsInnerTube?: InnerTubePatchStatus;
+    __blockAdsInnerTube?: CarrierStatus;
   }
 }
+
+export const carrierStatusSeed = (): CarrierStatus => ({ accessorInstalled: false, carrierPruned: false });
+
+/**
+ * La forma que produce un `var ytInitialPlayerResponse = {…}` a nivel global en la página: dato
+ * writable y enumerable, no configurable. Se restaura exactamente así para no dejar huella.
+ */
+const PAGE_VAR_DESCRIPTOR = { writable: true, enumerable: true, configurable: false } as const;
+
+const healCarrier = (host: CarrierHost, value: JsonValue | undefined, status: CarrierStatus): void => {
+  Object.defineProperty(host, INLINE_CARRIER, { ...PAGE_VAR_DESCRIPTOR, value });
+  status.carrierPruned = true;
+};
 
 /**
  * Solo se poda si el valor es un objeto JSON, que es lo que la página serializa ahí. Cualquier otro
@@ -239,26 +256,31 @@ export const initialResponseValue = (raw: JsonValue | undefined, keys: readonly 
   isJsonObject(raw) ? pruneAdKeys(raw, keys) : raw;
 
 /**
- * Sustituye el carrier por un accesorio que poda en el momento de la asignación, antes de que el
- * `<script>` inline de la página lo declare con `var`.
+ * Usa el accesorio como **trampa de una sola escritura**: intercepta la asignación del `<script>`
+ * inline, poda, y devuelve la propiedad a su forma de data property. Un accesorio permanente se
+ * detecta con `Object.getOwnPropertyDescriptor(window, 'ytInitialPlayerResponse')`; este no queda.
  *
- * Devuelve `false` sin tocar nada cuando la propiedad ya existe como no-configurable: se perdió la
- * carrera y la poda inline no va a ocurrir.
+ * Si la página ya declaró el carrier, `var` lo deja writable: se poda sobrescribiendo el valor sin
+ * tocar el descriptor. Si además fuera no-writable no hay forma de podar sin romper la página y se
+ * informa sin instalar nada. El retorno dice si se instaló la trampa, no si se podó.
  */
-export const shadowInlineCarrier = (host: CarrierHost, keys: readonly string[]): boolean => {
-  const state: { value: JsonValue | undefined } = {
-    value: initialResponseValue(host.ytInitialPlayerResponse, keys),
-  };
+export const shadowInlineCarrier = (host: CarrierHost, keys: readonly string[], status: CarrierStatus): boolean => {
+  const existing = host.ytInitialPlayerResponse;
+
+  if (existing !== undefined) {
+    healOrReport(host, initialResponseValue(existing, keys), status);
+
+    return false;
+  }
 
   try {
     Object.defineProperty(host, INLINE_CARRIER, {
       configurable: true,
       enumerable: true,
-      get: () => state.value,
-      set: (raw: JsonValue | undefined) => {
-        state.value = initialResponseValue(raw, keys);
-      },
+      get: () => undefined,
+      set: (raw: JsonValue | undefined) => healCarrier(host, initialResponseValue(raw, keys), status),
     });
+    status.accessorInstalled = true;
 
     return true;
   } catch {
@@ -266,18 +288,27 @@ export const shadowInlineCarrier = (host: CarrierHost, keys: readonly string[]):
   }
 };
 
+const healOrReport = (host: CarrierHost, value: JsonValue | undefined, status: CarrierStatus): void => {
+  try {
+    healCarrier(host, value, status);
+  } catch {
+    // Propiedad no configurable y no writable: no hay forma de podar sin romper la página.
+  }
+};
+
 /**
  * Se ejecuta al inyectarse el bundle de MAIN world; sin `window` (tests en Node) no hay nada que
  * envolver y se informa como no podado. Sin `eval` ni `new Function`: la CSP de YouTube los bloquea.
  */
-export const installInnerTubePatch = (): InnerTubePatchStatus => {
-  if (typeof window === "undefined") return { carrierShadowed: false };
+export const installInnerTubePatch = (): CarrierStatus => {
+  if (typeof window === "undefined") return carrierStatusSeed();
 
   installFetchPatch();
   installXhrPatch();
 
-  const status: InnerTubePatchStatus = { carrierShadowed: shadowInlineCarrier(window, PRUNED_KEYS) };
+  const status = carrierStatusSeed();
   window.__blockAdsInnerTube = status;
+  shadowInlineCarrier(window, PRUNED_KEYS, status);
 
   return status;
 };
