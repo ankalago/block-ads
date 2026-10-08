@@ -144,6 +144,31 @@ Known limitation, accepted: after the heal the property is a plain writable data
 `/youtubei/v1/player`, where the fetch/XHR patch prunes the same object before the page sees it —
 that path was measured green in §7.
 
+**Task 10 result: the fix is correct but the hypothesis was wrong.** With the trap loaded, Paul's
+browser reports `descriptor: data`, `configurable: false`, `scriptlet:
+{accessorInstalled: true, carrierPruned: true}`, `placements: ABSENT` — and `status: ERROR`. No
+accessor fingerprint survives, the wall is still there. §10's "the accessor is the tell" was a real
+correlation with no causal proof; the shipped change is still worth keeping (a permanent get/set on a
+page global is a free fingerprint and the writable-overwrite fallback prunes a carrier we used to
+skip), but it did not close the bug.
+
+What the combos actually leave standing (`odd/specs/youtube-evidence.md` §11):
+
+| inline carrier pruned | DNR | result |
+|---|---|---|
+| NO (fetch/XHR only) | ON | no wall, **pre-roll plays** (task 7) |
+| YES | OFF | no wall |
+| YES | ON | **wall**, `playabilityStatus.status: ERROR` |
+
+So the trigger is the *combination*, and two things are still unmeasured: which blocked request is
+the tell, and whether `ERROR` is decided by the server (sticky per session) or by the player. The
+first needs a URL per blocked request, which `getMatchedRules` cannot give (its `MatchedRule` is
+`ruleId`/`rulesetId`/`tabId`/`timeStamp`, verified in `@types/chrome@0.3.4`); `onRuleMatchedDebug`
+does carry `request.url` and `request.type`, so `1347914` adds a 60-entry deduped buffer in
+`chrome.storage.session` with the matched filter text, readable from the service worker console.
+The second needs the raw `/watch` HTML, which our pruning never touches. The measurement protocol,
+with both console snippets and the decision table, is §11 of the evidence spec.
+
 Still open for task 7, in the real Chrome after reloading the extension and the watch page:
 
 1. `Object.getOwnPropertyDescriptor(window, 'ytInitialPlayerResponse')` → `data`, `configurable:

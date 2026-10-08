@@ -254,3 +254,78 @@ descubrió el propio test, no estaba previsto).
 
 `window.__blockAdsInnerTube` ahora publica `{ accessorInstalled, carrierPruned }` para poder
 distinguir "no gané la carrera" de "podé" en el mismo lugar.
+
+## 11. Falsificación de la hipótesis del accesorio (2026-10-08, Chrome real de Paul)
+
+Medición con la trampa de una sola escritura ya cargada (`75688f7` + `dist` rehecho):
+
+```text
+descriptor: data | configurable: false
+scriptlet: {"accessorInstalled":true,"carrierPruned":true}
+status: ERROR | placements: ABSENT
+```
+
+La huella del accesorio **desapareció** (el descriptor vuelve a ser el de un `var` de la página, con
+la trampa disparada y el carrier podado) y **el muro sigue ahí**. Queda refutada la hipótesis de §10:
+el getter/setter no era el disparador. La correlación que la sustentaba era real pero no causal.
+
+Tabla de combos medida, que es lo que queda en pie:
+
+| poda del carrier inline | DNR ON | resultado |
+|---|---|---|
+| NO (solo fetch/XHR) | ON | sin muro, **con pre-roll** (tarea 7) |
+| SÍ | OFF | sin muro |
+| SÍ | ON | **muro** (`playabilityStatus.status: ERROR`) |
+
+El muro necesita las dos cosas a la vez, así que el delator está en la interacción entre *claves de
+anuncio ausentes* y *requests de anuncio bloqueados*. No sabemos todavía:
+
+1. **Ni qué request bloqueado es el delator.** `getMatchedRules` solo devuelve `ruleId`, `rulesetId`,
+   `tabId` y `timeStamp` (verificado en `@types/chrome@0.3.4`, `MatchedRuleInfo`) — sin URL. Por eso
+   `1347914` instrumenta `chrome.declarativeNetRequest.onRuleMatchedDebug`, que sí entrega
+   `request.url` y `request.type` (`MatchedRuleInfoDebug`), y lo guarda en un buffer de 60 entradas
+   deduplicado en `chrome.storage.session` con el texto del filtro que casó.
+2. **Si el `ERROR` lo decide el servidor o el player.** `getPlayerResponse()` puede ser el objeto ya
+   mutado por el player, así que no distingue. El probes de HTML crudo (abajo) sí: pide `/watch?v=…`
+   y lee `playabilityStatus` en la respuesta del servidor, ajena a nuestra poda.
+
+### Protocolo de medición (una sola recarga de la extensión)
+
+En la consola de la **página** con el muro:
+
+```js
+(async () => {
+  const vid = new URLSearchParams(location.search).get("v");
+  const html = await (await fetch(`/watch?v=${vid}`, { credentials: "include" })).text();
+  const raw = (html.match(/"playabilityStatus":(.{0,400})/s) ?? [])[1] ?? "";
+  const count = (k) => (html.match(new RegExp(`"${k}":`, "g")) ?? []).length;
+  console.log(JSON.stringify({
+    servidor_status: raw.match(/"status":"(\w+)"/)?.[1] ?? "n/d",
+    servidor_dice_adblocker: html.includes("Ad blockers violate"),
+    servidor_adPlacements: count("adPlacements"),
+    servidor_playerAds: count("playerAds"),
+    servidor_adSlots: count("adSlots"),
+    player_status: document.querySelector("#movie_player")?.getPlayerResponse?.().playabilityStatus?.status ?? "n/d",
+    google_ad_status: typeof window.google_ad_status,
+  }));
+})();
+```
+
+En la consola del **service worker** (`chrome://extensions` → *Inspection views: Service worker*):
+
+```js
+chrome.storage.session.get("dnrBlocked").then((d) =>
+  console.table((d.dnrBlocked ?? []).map((h) => ({ ruleId: h.ruleId, filter: h.filter, hits: h.hits, url: h.url.slice(0, 130) }))),
+);
+```
+
+Cómo se lee:
+
+| `servidor_status` | `player_status` | Conclusión |
+|---|---|---|
+| `ERROR` | `ERROR` | el flag es del servidor y es *sticky* por sesión: hay que reproducir en limpio (ventana de incógnito con la extensión) antes de tocar nada |
+| `OK` con `adPlacements ≥ 1` | `ERROR` | lo decide el player en el cliente: el delator está en la poda o en el request bloqueado que muestre `dnrBlocked` |
+
+Candidato clásico a confirmar con `dnrBlocked`: `static.doubleclick.net/instream/ad_status.js`
+(la canary `window.google_ad_status`), que bloquea nuestra regla 2 `||doubleclick.net^`. EasyList
+trae excepción explícita para esa URL; si aparece en el volcado, esa es la primera corrección.
