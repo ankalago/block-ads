@@ -185,6 +185,14 @@ real ad request). `@@||static.doubleclick.net/instream/ad_status.js$domain=youtu
 before the list edit; core 145, extension 60, `pnpm check:ci` exit 0, `dist/` rebuilt with a forced
 cache miss and verified by artifact content).
 
+**Task 14 result: the canary was a tell, not the tell.** With `fd0b0ea` loaded, `google_ad_status`
+went from `"undefined"` to `"number"` (Chrome now reports the `allow` rule as the winner, `ruleId 1`)
+and the wall is still up. See §13. While chasing that, `git log -S` showed `__blockAdsInnerTube` — the
+page-readable telemetry global — arrived in the *same* commit as inline-carrier pruning (`c638867`),
+so every wall measurement since has had two variables moving at once, and the "no global" baseline was
+measured before the global existed. `c0f351c` stops publishing it unless the URL carries
+`blockadsdebug`; the status is still returned for tests.
+
 Still open for task 7, in the real Chrome after reloading the extension and the watch page:
 
 1. `Object.getOwnPropertyDescriptor(window, 'ytInitialPlayerResponse')` → `data`, `configurable:

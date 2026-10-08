@@ -385,3 +385,53 @@ compiler vuelca el patrón tal cual en `urlFilter`. Está bien: Chrome interpret
 Precedencia: `initiatorDomains` tiene precedencia sobre `domainType` en las reglas *de bloqueo* de
 Chrome, pero nuestra lista no usa ninguna regla `$third-party` (`grep -c third-party` = 0), así que el
 caso no se da aquí. Queda anotado como riesgo si la lista crece.
+
+## 13. La canary reabierta no levantó el muro (2026-10-08, Chrome real de Paul)
+
+Con `fd0b0ea` cargado (`dist` rehecho y verificado por contenido), el video que daba muro midió:
+
+```json
+{"servidor_status":"OK","player_status":"ERROR","google_ad_status":"number"}
+```
+
+```text
+ruleId 1 | ||static.doubleclick.net/instream/ad_status.js | hits 1 | https://static.doubleclick.net/instream/ad_status.js
+ruleId 3 | ||doubleclick.net^                              | hits 2 | https://googleads.g.doubleclick.net/pagead/id
+```
+
+`google_ad_status` pasó de `"undefined"` a `"number"`: la excepción funciona y Chrome reporta la regla
+`allow` como la que gana (`ruleId 1`, prioridad 2). **Y el muro sigue.** La canary era *un* delator, no
+*el* delator. El dato se conserva igual de valioso: acota la búsqueda al pedido de red que sigue
+cortado (`pagead/id`) o a algo que hacemos en el mundo del page.
+
+### El confound que aparece recién ahora
+
+`git log -S "__blockAdsInnerTube"` devuelve un solo commit: `c638867`, el mismo que metió la poda del
+carrier inline. Hasta hoy el scriptlet publicaba
+
+```ts
+window.__blockAdsInnerTube = status;   // innertube.ts:310, antes de c0f351c
+```
+
+una propiedad **own, enumerable y legible desde los scripts de la página**, con un nombre que dice
+literalmente "block ads". Cualquier `Object.keys(window)` o `"__blockAdsInnerTube" in window` la ve.
+
+Esto rompe la lectura de la tabla de §11: la fila "carrier sin podar + DNR ON = sin muro" se midió
+*antes* de `c638867`, cuando ese global todavía no existía. O sea que `c638867` cambió dos cosas a la
+vez (poda del carrier **y** fingerprint propio en `window`) y nunca las separamos. El "poda = delator"
+está tan contaminado como estaba el "accesorio = delator".
+
+Corrección estructural: `c0f351c` deja de publicar el estado por defecto. `shouldPublishStatus` solo
+lo expone si la URL trae `blockadsdebug`, el `status` se sigue devolviendo desde
+`installInnerTubePatch()`, y el orden de instalación no cambia (fetch → XHR → publish condicional →
+`shadowInlineCarrier`). Tests: 66 en la extensión (6 nuevos, RED visto). `check:ci` exit 0.
+
+Hipótesis sin verificar, ordenada por costo de prueba:
+
+1. **El fingerprint propio era el delator.** Se prueba gratis: recargar sin `blockadsdebug` en la URL.
+2. **`googleads.g.doubleclick.net/pagead/id`** es el segundo request de red que cortamos y sigue
+   cortado. Si 1 no mueve nada, se prueba sacando `||doubleclick.net^` (regla que nuestra propia lista
+   marca como *NO VERIFICADA EN ESTA SESIÓN*) y midiendo.
+3. **Inconsistencia del response podado**: `adBreakHeartbeatParams` no vacío con `adPlacements`
+   ausentes. Nuestro spec decide preservar el heartbeat; si 1 y 2 no explican, se mide la variante
+   consistente. Todavía no tenemos ni un solo dato sobre esto, así que va tercera.
