@@ -210,3 +210,47 @@ lanza con `--disable-extensions`, así que allí las mediciones de extensión no
 
 Pendiente tras el fix: repetir en el Chrome real (recargar la extensión y el watch page)
 `__blockAdsInnerTube` → `{ carrierShadowed: true }` y comprobar que el pre-roll no aparece.
+
+## 10. El muro de cumplimiento: la poda inline delata el accesorio (2026-10-08)
+
+**Síntoma.** Tras `c638867` (sombrear `window.ytInitialPlayerResponse` con un getter/setter), en el
+Chrome real de Paul: desde la home entra a un video y lo mira; al elegir **otro** video aparece el
+interstitial oficial: *"Ad blockers violate YouTube's Terms of Service. It looks like you may be
+using an ad blocker. Video playback is blocked unless YouTube is allowlisted or the ad blocker is
+disabled."*
+
+**Mediciones (Chrome de Paul, extensión cargada, 2026-10-08).**
+
+| # | Medición | Resultado |
+|---|---|---|
+| 1 | `playabilityStatus.status` | `ERROR` con `reason: ""`; con DNR desactivado, `OK` |
+| 2 | Elemento del muro | `.ytp-mdx-popup-dialog` (dentro del reproductor HTML5, no inyectado por el servidor) |
+| 3 | `Object.getOwnPropertyDescriptor(window,'ytInitialPlayerResponse')` | **`data` con el scriptlet OFF / `accessor` con el scriptlet ON** |
+| 4 | Solo el accesorio (sin DNR), 4 cambios de video | **devolvió `data`**, sin muro |
+| 5 | Prueba clásica `static.doubleclick.net/instream/ad_status.js` | responde `200` con `window.google_ad_status = 1;` y **sigue cargando con nuestras 5 reglas** → no es el disparador |
+| 6 | Tráfico real de un watch page | **cero** requests a `doubleclick`/`googlesyndication` en la carga normal |
+
+**Conclusión.** El muro es una decisión **del lado del cliente**, tomada por el HTML5 player. El
+indicador observable que coincide con el fallo es el descriptor: un getter/setter permanente en
+`window.ytInitialPlayerResponse` es detectable con una sola llamada a
+`getOwnPropertyDescriptor`. La medición 4 muestra que YouTube no lo chequea en el arranque normal
+(sigue viendo `data` porque la detección ocurre en la navegación SPA), así que la firma del
+accesorio es el vector probable, no demostrado como único.
+
+**Década (elegida por Paul).** Poda inline **sin dejar huella de accesorio**: el accesorio se usa
+como trampa de **una sola escritura** y, en cuanto la página asigna el carrier, la propiedad se
+restablece como data property con la forma exacta de un `var` global
+(`writable: true, enumerable: true, configurable: false`). Si la página ya ganó la carrera, `var`
+deja la propiedad *writable*: se poda sobrescribiendo el valor sin tocar el descriptor (esto lo
+descubrió el propio test, no estaba previsto).
+
+**Matriz de resultados esperada tras recargar la extensión en Chrome real.**
+
+| Muro | Pre-roll | Lectura |
+|---|---|---|
+| No | No | B funciona: la poda inline sin huella no se detecta |
+| No | Sí | la poda llega tarde (la página ya planificó el anuncio) → ir a A: neutralizar en reproducción |
+| Sí | — | el delator son las claves de anuncio ausentes o el bloqueo DNR, no el descriptor → ir a A |
+
+`window.__blockAdsInnerTube` ahora publica `{ accessorInstalled, carrierPruned }` para poder
+distinguir "no gané la carrera" de "podé" en el mismo lugar.
