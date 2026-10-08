@@ -329,3 +329,59 @@ Cómo se lee:
 Candidato clásico a confirmar con `dnrBlocked`: `static.doubleclick.net/instream/ad_status.js`
 (la canary `window.google_ad_status`), que bloquea nuestra regla 2 `||doubleclick.net^`. EasyList
 trae excepción explícita para esa URL; si aparece en el volcado, esa es la primera corrección.
+
+## 12. El delator: la canary `ad_status.js` bloqueada por nuestra propia regla (2026-10-08)
+
+Medición con el instrumento de §11 en el Chrome real de Paul, sobre un video con muro:
+
+```json
+{"servidor_status":"OK","servidor_dice_adblocker":true,"servidor_adPlacements":0,
+ "servidor_playerAds":0,"player_status":"ERROR","google_ad_status":"undefined"}
+```
+
+```text
+ruleId 2 | ||doubleclick.net^ | hits 1 | https://static.doubleclick.net/instream/ad_status.js
+ruleId 2 | ||doubleclick.net^ | hits 2 | https://googleads.g.doubleclick.net/pagead/id
+```
+
+Cuatro conclusiones, cada una atada a un dato:
+
+1. **El `ERROR` lo decide el player en el cliente.** El `/watch` crudo del servidor dice `OK`; el
+   `getPlayerResponse()` en pantalla dice `ERROR`. No es un flag de servidor ni es *sticky* por sesión.
+2. **La poda del carrier no era el delator.** En esa carga el servidor mandó
+   `adPlacements: 0, playerAds: 0`: no había claves que podar y el muro igual estaba. Cae también la
+   segunda hipótesis de §11.
+3. **`servidor_dice_adblocker: true` no es señal.** El texto "Ad blockers violate" viene en el HTML de
+   la página como plantilla del diálogo (`ytp-mdx-popup-dialog`), con `playabilityStatus` OK. Un probe
+   que busque ese string para saber si hay muro es inútil: hay que mirar `playabilityStatus.status`.
+4. **El delator es la canary.** `static.doubleclick.net/instream/ad_status.js` es el chequeo clásico
+   de ad-blocker: ese script solo hace `window.google_ad_status = 1`, y aparecía muerto
+   (`typeof window.google_ad_status === "undefined"`) porque nuestra regla 2 (`||doubleclick.net^`)
+   lo cortaba. EasyList trae excepción para esa misma URL por algo.
+
+Corrección aplicada: excepción de una línea en `packages/rules/lists/youtube.txt`, acotada al recurso
+y al initiator, sin aflojar el resto del host.
+
+```text
+@@||static.doubleclick.net/instream/ad_status.js$domain=youtube.com
+```
+
+Compilado real en `apps/block-ads/dist/rules.json` (6 reglas):
+
+```json
+{ "id": 1, "priority": 2, "action": { "type": "allow" },
+  "condition": { "urlFilter": "||static.doubleclick.net/instream/ad_status.js",
+                 "initiatorDomains": ["youtube.com"] } }
+```
+
+Gates: `Tests 7 passed` en `packages/rules` (RED visto antes de editar la lista), core 145, extensión
+60, `pnpm check:ci` exit 0, `build` con cache miss forzado y `dist` rehecho a las 11:14.
+
+Detalle del parser que quedó registrado: `DOMAIN_ANCHOR_PATTERN` exige `^` final
+(`packages/core/src/parser.ts:35`), así que `||…/ad_status.js` se clasifica como `substring` y el
+compiler vuelca el patrón tal cual en `urlFilter`. Está bien: Chrome interpreta el anclaje `||` del
+`urlFilter` por su cuenta, y `^` final sería peor (el separador no casa con un `?query` posterior).
+
+Precedencia: `initiatorDomains` tiene precedencia sobre `domainType` en las reglas *de bloqueo* de
+Chrome, pero nuestra lista no usa ninguna regla `$third-party` (`grep -c third-party` = 0), así que el
+caso no se da aquí. Queda anotado como riesgo si la lista crece.

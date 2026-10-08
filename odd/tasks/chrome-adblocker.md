@@ -169,6 +169,22 @@ does carry `request.url` and `request.type`, so `1347914` adds a 60-entry dedupe
 The second needs the raw `/watch` HTML, which our pruning never touches. The measurement protocol,
 with both console snippets and the decision table, is §11 of the evidence spec.
 
+**Task 10 closed by measurement (`odd/specs/youtube-evidence.md` §12).** The probe answered both
+open questions in one reload: the raw `/watch` HTML says `playabilityStatus: OK` while the player on
+screen says `ERROR`, so the wall is a **client-side decision**, not a sticky server flag; and that
+same HTML had `adPlacements: 0, playerAds: 0`, so there was nothing to prune — **carrier pruning was
+not the tell either**. The blocked-request dump named the culprit: rule `||doubleclick.net^` was
+killing `static.doubleclick.net/instream/ad_status.js`, the classic ad-block canary (it only sets
+`window.google_ad_status = 1`), measured dead in the same session as `google_ad_status: "undefined"`.
+
+Fix: one exception scoped to that resource and to YouTube as initiator, leaving every other
+`doubleclick.net` request blocked (`googleads.g.doubleclick.net/pagead/id` stays blocked, and it is a
+real ad request). `@@||static.doubleclick.net/instream/ad_status.js$domain=youtube.com` compiles to
+`{ id: 1, priority: 2, action: allow, initiatorDomains: ["youtube.com"] }`, which outranks the five
+`priority: 1` blocks. Work unit commit: `fd0b0ea` (`Tests 7 passed` in `packages/rules`, RED seen
+before the list edit; core 145, extension 60, `pnpm check:ci` exit 0, `dist/` rebuilt with a forced
+cache miss and verified by artifact content).
+
 Still open for task 7, in the real Chrome after reloading the extension and the watch page:
 
 1. `Object.getOwnPropertyDescriptor(window, 'ytInitialPlayerResponse')` → `data`, `configurable:
