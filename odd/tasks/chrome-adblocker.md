@@ -271,3 +271,38 @@ cosmetics no longer leak into the network path).
 
 Run `pnpm check:ci` before considering anything done. `pnpm install` needs
 `pnpm approve-builds --all` once in a fresh clone (pnpm 12 blocks esbuild/lefthook builds).
+
+## Wall investigation close-out (cfe56d4 -> neutralisation)
+
+The fresh-load pair settled it. With the extension reloaded and a brand-new tab:
+
+```text
+carrier_en_window ABSENT | live_adPlacements ABSENT | live_playerAds ABSENT | live_adSlots ABSENT
+heartbeat "len 8" | status ERROR | video.currentSrc "" | dnrBlocked []
+```
+
+Four hypotheses died in one measurement: network rules (zero DNR matches in that load, so neither the
+canary nor `/pagead/id` ever ran), the permanent accessor, the `window.__blockAdsInnerTube` fingerprint,
+and both allow exceptions. What was left is the shape of the object we hand the player: three ad keys
+**deleted** while `adBreakHeartbeatParams` stays a non-empty string. That reads to the player as "an ad
+blocker removed my scheduled ad break", not as "no ad break scheduled".
+
+Changed `fix(extension): neutralize ad keys in place instead of deleting them`:
+
+- `PRUNED_KEYS` + `PROTECTED_KEYS` -> `NEUTRALIZED_KEYS`; a matched key stays present with the empty value
+  of its own runtime kind (`[]`, `{}`, `""`). `number`/`boolean`/`null` still drop, documented and pinned by
+  a test.
+- `adBreakHeartbeatParams` moved into the neutralised set. This **reverses `extension-shell.md` §6**, whose
+  "deleting it makes the player unplayable" line was a recon assumption, never a measurement. Recorded in
+  the spec with the decision tree for the next measurement.
+- `pruneAdKeys` -> `neutralizeAdKeys`; the one-shot carrier trap, the install order and the
+  `blockadsdebug` gate are untouched.
+- extension tests 66 -> 69, `pnpm check:ci` exit 0 (145 core, 8 rules).
+
+Verification beyond the suite: loaded the built `apps/block-ads/dist/innertube.js` in a Node `vm` with a
+fake `window`, both through the write trap and with the carrier pre-existing. `adPlacements` ends as `[]`,
+`adBreakHeartbeatParams` as `""`, nested `onResponseReceivedActions[0].adPlacements` too, `videoDetails`
+and `streamingData.formats` intact, descriptor `data` + `configurable: false`, and telemetry absent without
+the token. `grep -c PROTECTED_KEYS dist/innertube.js` -> 0.
+
+Not yet measured: whether neutralisation lifts the wall. The decision tree is in `youtube-evidence.md` §15.

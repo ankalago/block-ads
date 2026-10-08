@@ -23,21 +23,37 @@ Hechos de Chrome citados de la doc oficial (2026-10-06), no de memoria:
    `chrome.*`), no se evalúa código desde datos.
 3. **Prohibido `eval` / `new Function`** en el MAIN world: la CSP de YouTube lo bloquea y sería
    un vector de inyección. El parche envuelve `fetch` y `XMLHttpRequest` con código estático.
-4. **Poda conservadora**: solo se eliminan `adPlacements`, `adSlots` y `playerAds` de las
-   respuestas JSON de `/youtubei/v1/player` y `/next`. `adBreakHeartbeatParams` **nunca** se
-   toca: borrarlo deja el reproductor en estado no reproducible.
+4. **Neutralizar, no borrar** (revierte la decisión §4 anterior, 2026-10-08). Las claves de
+   anuncio de las respuestas JSON de `/youtubei/v1/player` y `/next` —`adPlacements`, `adSlots`,
+   `playerAds` y ahora también `adBreakHeartbeatParams`— **permanecen presentes** con el valor vacío
+   de su propio tipo runtime (`[]`, `{}`, `""`). Borrarlas producía una response internamente
+   inconsistente: `adPlacements` ausente con un heartbeat de 8 caracteres, que el player lee como
+   "un bloqueador me quitó los anuncios" en vez de "no hay ad break programado`. Ver
+   `youtube-evidence.md` §15.
+   - Fallback: una clave neutralizable cuyo valor sea `number`, `boolean` o `null` sí se elimina
+     (no hay vacío honesto); está pinneado por test.
+   - La justificación anterior ("borrar `adBreakHeartbeatParams` deja el reproductor no
+     reproducible") era una suposición de reconocimiento, no una medición. Si la próxima medición
+     muestra el video efectivamente no reproducible con heartbeat vacío, se devuelve
+     `adBreakHeartbeatParams` al conjunto protegido y se mantiene la neutralización del resto.
 5. **Nada de accesorio permanente en un global de la página.** El primer `ytInitialPlayerResponse`
    llega serializado en el HTML (`var ytInitialPlayerResponse = {…}`), así que la poda de red no lo
    ve y hay que interceptarlo. Un getter/setter que queda instalado es una huella detectable con
-   `Object.getOwnPropertyDescriptor` y activó el muro de "Ad blockers violate YouTube's ToS".
+   `Object.getOwnPropertyDescriptor`. **No** era el disparador del muro: con el accesorio ya
+     eliminado el muro persistió (`youtube-evidence.md` §11). Se evita igualmente porque es gratis
+     y porque una huella en un global de la página es superficie para el próximo detector.
    El accesorio se usa como **trampa de una sola escritura**: poda en el `set` y devuelve la
    propiedad a la forma exacta del `var` de la página (`value`, `writable: true`, `enumerable:
    true`, `configurable: false`). Si la página ya ganó la carrera la propiedad sigue *writable*: se
    poda sobrescribiendo el valor y no se instala nada.
-6. **`dist/` es parte del entregable.** Paul carga la extensión unpacked desde
-   `apps/block-ads/dist`; un artefacto rancio hace que se pruebe código viejo con la apariencia de
-   una prueba válida. Antes de decir "recarga la extensión": `pnpm build` y comprobar que
-   `dist/innertube.js` contiene los símbolos nuevos (y que Turbo reportó *cache miss*).
+6. **`dist/` es parte del entregable, pero no se commitea** (`dist/` está en `.gitignore`). Paul
+   carga la extensión unpacked desde `apps/block-ads/dist`; un artefacto rancio hace que se pruebe
+   código viejo con la apariencia de una prueba válida. Antes de decir "recarga la extensión":
+   `pnpm build` (o `pnpm build --force` si Turbo reporta *cache hit*) y comprobar que
+   `apps/block-ads/dist/innertube.js` contiene los símbolos nuevos y tiene mtime fresco.
+   La comprobación fuerte es por **contenido ejecutado**, no por grep: cargar el bundle real en un
+   `vm` de Node con un `window` falso, asignarle un carrier con anuncios y verificar que queda
+   neutralizado (ver `youtube-evidence.md` §15).
 
 ## Manifest (`manifest.json`, MV3)
 

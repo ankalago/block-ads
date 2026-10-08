@@ -513,3 +513,87 @@ Qué esperamos en Chrome real: **sin muro**. La segunda pregunta es la buena: **
 inline y el `/player` podados no debería haber anuncios que servir — `pagead/id` es un ping de identidad, no el
 medio del anuncio. Si aparece pre-roll, muro y pre-roll están acoplados y hay que resolverlo por otra vía (la 3:
 consistencia del response podado).
+
+## 15. Cero reglas DNR matcheadas y poda aplicada: el delator es la forma de la response (2026-10-08)
+
+Medición con el protocolo correcto por primera vez: recargar la extensión en `chrome://extensions` →
+**pestaña nueva** (`watch?v=3Oxlzhk3pXA`) → sonda en la página → dump en el service worker. El orden importa
+porque `chrome.storage.session` es memoria: se vacía al recargar, y un `[]` leído en una pestaña vieja no es
+una medición.
+
+```json
+{ "carrier_en_window": "ABSENT", "live_adPlacements": "ABSENT", "live_playerAds": "ABSENT",
+  "live_adSlots": "ABSENT", "heartbeat": "len 8", "status": "ERROR",
+  "reproduce": { "src": "", "paused": true }, "fetch_es_nativa": false }
+```
+
+Dump del service worker, en la misma carga:
+
+```text
+chrome.storage.session.get("dnrBlocked") → []
+```
+
+### Qué establishes con esto
+
+- La poda del carrier inline **sí aplicó**: las tres claves no están en el objeto que lee el player.
+- La red **no participó en esta carga**: ninguna regla DNR se matcheó una sola vez. El muro se dispara tan
+  temprano que YouTube nunca llega a agendar anuncios, así que no pidió ni `ad_status.js` ni `/pagead/id`.
+- El muro igual está ahí: `status: "ERROR"`, `video.currentSrc === ""`, `paused: true`.
+
+Quedan refutados por medición directa: las reglas de red (`fd0b0ea`, `cfe56d4` no levantaron el muro, y acá
+ni siquiera corrieron), el accesorio permanente (§11), la huella `window.__blockAdsInnerTube` (§13) y la
+canary `ad_status.js` (§13).
+
+### La hipótesis que queda, y por qué es la última sin probar
+
+Le estamos entregando al player un objeto **al que le faltan teclas** con `adBreakHeartbeatParams` de 8
+caracteres intacta. Para el player eso no se lee como "no hay anuncios programados", se lee como "había un
+ad break y alguien me borró los placements". Una response coherente de "sin anuncios" tiene las mismas
+claves, vacías.
+
+Es el mismo motivo por el que los bloqueadores mainstream devuelven arrays vacíos en vez de podar claves, y
+por el que `declarativeNetRequest` con `redirect=nooptext` neutraliza en vez de matar la request.
+
+### El fix: neutralizar en lugar de borrar
+
+`NEUTRALIZED_KEYS` reemplaza a `PRUNED_KEYS`, y `PROTECTED_KEYS` desaparece:
+
+```ts
+["adPlacements", "adSlots", "playerAds", "adBreakHeartbeatParams"]
+```
+
+Cada clave neutralizada **queda presente** con el valor vacío de su propio tipo runtime: `[]`, `{}`, `""`.
+`number` / `boolean` / `null` no tienen vacío honesto y se eliminan (fallback documentado y pinneado por
+test). La función sigue siendo pura, recursiva, y devuelve la misma referencia cuando no cambia nada.
+
+Vaciar `adBreakHeartbeatParams` **revierte la decisión §6 de `extension-shell.md`**, que asumía (sin medición)
+que tocarla dejaba el reproductor no reproducible. El árbol de decisión de la próxima medición:
+
+| Resultado | Interpretación | Acción |
+|---|---|---|
+| sin muro y reproduce | la inconsistencia era el disparador | cerrar tarea 7 |
+| sin muro pero no reproduce | heartbeat vacío rompe | devolver heartbeat al set protegido, mantener `[]` |
+| muro igual | no era la forma | Plan B: solo cosmética + media verificado, aceptar pre-roll |
+
+### Verificación adversarial del artefacto, no de los tests
+
+Los 69 tests del paquete verde no prueban el bundle que carga Paul. Cargué `dist/innertube.js` real en un
+`vm` de Node con un `window` falso y un carrier con anuncios:
+
+```text
+token + preexistente  | adPlacements: []  heartbeat: ""  telemetría: publicada
+token + trampa        | adPlacements: []  heartbeat: ""  telemetría: publicada
+sin token + trampa    | adPlacements: []  heartbeat: ""  telemetría: undefined
+query real (?app=…&blockadsdebug=1) | adPlacements: []  heartbeat: ""  telemetría: publicada
+```
+
+Además, en los cuatro casos: descriptor `data` con `configurable: false` (no queda accesorio),
+`videoDetails` y `streamingData.formats` intactos, y la clave anidada dentro de
+`onResponseReceivedActions[0].adPlacements` también neutralizada (la poda anterior dejaba `[{}]`, ahora
+deja el array vacío dentro del action).
+
+### Lección metodológica sobre las sondas
+
+La medición anterior decía `placements: "PRESENTES"` porque la sonda distinguía `undefined` vs presente y
+perdía el `.length`: un `[]` vacío y un array con anuncios se veían igual. Las sondas tienen que imprimir
+**el valor**, no una etiqueta de presencia. Igual que `muro_visible` por `.ytp-mdx-popup-dialog` (§14).
