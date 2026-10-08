@@ -1,6 +1,6 @@
-import { PROTECTED_KEYS, PRUNE_ENDPOINTS, PRUNE_RULES, PRUNED_KEYS } from "./innertube.config.ts";
+import { NEUTRALIZED_KEYS, PRUNE_ENDPOINTS, PRUNE_RULES } from "./innertube.config.ts";
 
-/** JSON de una respuesta de InnerTube: el árbol que recorre la poda. */
+/** JSON de una respuesta de InnerTube: el árbol que recorre la neutralización. */
 export type JsonObject = { readonly [key: string]: JsonValue };
 export type JsonValue = string | number | boolean | null | readonly JsonValue[] | JsonObject;
 
@@ -9,29 +9,51 @@ const isJsonObject = (value: unknown): value is JsonObject =>
 
 const isJsonArray = (value: unknown): value is readonly JsonValue[] => Array.isArray(value);
 
-const isPrunedKey = (key: string, keys: readonly string[]): boolean =>
-  keys.includes(key) && !PROTECTED_KEYS.includes(key);
+const isNeutralizedKey = (key: string, keys: readonly string[]): boolean => keys.includes(key);
 
-const pruneObject = (source: JsonObject, keys: readonly string[]): JsonObject => {
+/**
+ * Valor vacío del mismo tipo runtime que el original: array vacío, objeto vacío o string vacío.
+ * `number`, `boolean` y `null` no tienen un vacío honesto, así que devuelven `undefined` y la clave
+ * se elimina (fallback documentado y pinneado por test).
+ */
+const emptyValueOf = (value: JsonValue): JsonValue | undefined => {
+  if (isJsonArray(value)) return [];
+  if (isJsonObject(value)) return {};
+  if (typeof value === "string") return "";
+  return undefined;
+};
+
+type ObjectEntry = { readonly key: string; readonly value: JsonValue };
+
+const neutralizeEntry = (key: string, value: JsonValue, keys: readonly string[]): readonly ObjectEntry[] => {
+  if (!isNeutralizedKey(key, keys)) return [{ key, value: neutralizeValue(value, keys) }];
+
+  const empty = emptyValueOf(value);
+
+  return empty === undefined ? [] : [{ key, value: empty }];
+};
+
+const neutralizeObject = (source: JsonObject, keys: readonly string[]): JsonObject => {
   const entries = Object.entries(source);
-  const kept = entries.filter(([key]) => !isPrunedKey(key, keys));
-  const pruned = kept.map(([key, value]) => ({ key, value: pruneValue(value, keys) }));
-  const changed = kept.length !== entries.length || pruned.some((item, index) => item.value !== kept[index]?.[1]);
+  const neutralized = entries.flatMap(([key, value]) => neutralizeEntry(key, value, keys));
+  const changed =
+    neutralized.length !== entries.length || neutralized.some((item, index) => item.value !== entries[index]?.[1]);
 
-  return changed ? Object.fromEntries(pruned.map((item) => [item.key, item.value] as const)) : source;
+  return changed ? Object.fromEntries(neutralized.map((item) => [item.key, item.value] as const)) : source;
 };
 
 /**
- * Poda conservadora y recursiva: solo desaparecen las claves de la config de poda
- * (nunca `adBreakHeartbeatParams`). Devuelve la misma referencia si no cambia nada.
+ * Neutralización conservadora y recursiva: cada clave de la config permanece presente con el
+ * valor vacío de su propio tipo runtime. Devuelve la misma referencia si no cambia nada.
  */
-const pruneValue = (value: JsonValue, keys: readonly string[]): JsonValue => {
-  if (isJsonArray(value)) return value.map((item) => pruneValue(item, keys));
-  if (isJsonObject(value)) return pruneObject(value, keys);
+const neutralizeValue = (value: JsonValue, keys: readonly string[]): JsonValue => {
+  if (isJsonArray(value)) return value.map((item) => neutralizeValue(item, keys));
+  if (isJsonObject(value)) return neutralizeObject(value, keys);
   return value;
 };
 
-export const pruneAdKeys = (payload: JsonValue, keys: readonly string[]): JsonValue => pruneValue(payload, keys);
+export const neutralizeAdKeys = (payload: JsonValue, keys: readonly string[]): JsonValue =>
+  neutralizeValue(payload, keys);
 
 const PRUNED_ENDPOINTS: ReadonlySet<string> = new Set(PRUNE_ENDPOINTS);
 
@@ -50,7 +72,7 @@ export const pruneResponsePayload = (url: string, payload: JsonValue): JsonValue
   const endpoint = endpointOf(url);
   const rule = PRUNE_RULES.find((candidate) => candidate.endpoint === endpoint);
 
-  return rule === undefined ? payload : pruneAdKeys(payload, rule.keys);
+  return rule === undefined ? payload : neutralizeAdKeys(payload, rule.keys);
 };
 
 const JSON_CONTENT_TYPE = "application/json";
@@ -58,7 +80,7 @@ const JSON_CONTENT_TYPE = "application/json";
 const isJsonResponse = (response: Response): boolean =>
   (response.headers.get("content-type") ?? "").includes(JSON_CONTENT_TYPE);
 
-/** `JSON.parse` no está tipado, así que se declara el árbol en el borde, no en la poda. */
+/** `JSON.parse` no está tipado, así que se declara el árbol en el borde, no en la neutralización. */
 const readJson = async (response: Response): Promise<JsonValue | undefined> => {
   try {
     const payload: JsonValue = await response.json();
@@ -77,7 +99,7 @@ const parseJsonText = (text: string): JsonValue | undefined => {
   }
 };
 
-/** Reconstruye la respuesta con el JSON podado; las cabeceras del cuerpo viejo se descartan. */
+/** Reconstruye la respuesta con el JSON neutralizado; las cabeceras del cuerpo viejo se descartan. */
 const withPrunedBody = (response: Response, payload: JsonValue): Response => {
   const headers = new Headers(response.headers);
   headers.delete("content-length");
@@ -163,7 +185,7 @@ export const xhrShadows = (responseType: string, pruned: JsonValue): readonly Xh
 /**
  * XHR no expone el cuerpo parseado, así que se sombrean `response`/`responseText` solo en las
  * respuestas de player/next ya terminadas (`readyState === DONE`). Con `responseType` binario
- * (`arraybuffer`/`blob`) no hay forma de sombrear un string: se informa y no se poda.
+ * (`arraybuffer`/`blob`) no hay forma de sombrear un string: se informa y no se neutraliza.
  */
 const overrideXhrPayload = (target: XMLHttpRequest, url: string): void => {
   if (target.readyState !== XMLHttpRequest.DONE) return;
@@ -214,14 +236,14 @@ export const installXhrPatch = (): void => {
 
 /**
  * El carrier inline del watch page: el HTML trae `var ytInitialPlayerResponse = {…}`, así que la
- * primera respuesta nunca pasa por `fetch` ni por XHR y la poda de red no la ve.
+ * primera respuesta nunca pasa por `fetch` ni por XHR y la neutralización de red no la ve.
  */
 export const INLINE_CARRIER = "ytInitialPlayerResponse";
 
 /**
  * Lo que el scriptlet publica en la página para que una carrera perdida sea verificable a mano.
  * `accessorInstalled`: se ganó la carrera y se instaló la trampa de una sola escritura.
- * `carrierPruned`: el carrier terminó podado, por la trampa o por sobrescritura directa.
+ * `carrierPruned`: el carrier terminó neutralizado, por la trampa o por sobrescritura directa.
  */
 export type CarrierStatus = { accessorInstalled: boolean; carrierPruned: boolean };
 
@@ -257,20 +279,20 @@ const healCarrier = (host: CarrierHost, value: JsonValue | undefined, status: Ca
 };
 
 /**
- * Solo se poda si el valor es un objeto JSON, que es lo que la página serializa ahí. Cualquier otro
- * valor pasa intacto: romperlo rompería la página.
+ * Solo se neutraliza si el valor es un objeto JSON, que es lo que la página serializa ahí.
+ * Cualquier otro valor pasa intacto: romperlo rompería la página.
  */
 export const initialResponseValue = (raw: JsonValue | undefined, keys: readonly string[]): JsonValue | undefined =>
-  isJsonObject(raw) ? pruneAdKeys(raw, keys) : raw;
+  isJsonObject(raw) ? neutralizeAdKeys(raw, keys) : raw;
 
 /**
  * Usa el accesorio como **trampa de una sola escritura**: intercepta la asignación del `<script>`
- * inline, poda, y devuelve la propiedad a su forma de data property. Un accesorio permanente se
- * detecta con `Object.getOwnPropertyDescriptor(window, 'ytInitialPlayerResponse')`; este no queda.
+ * inline, neutraliza, y devuelve la propiedad a su forma de data property. Un accesorio permanente
+ * se detecta con `Object.getOwnPropertyDescriptor(window, 'ytInitialPlayerResponse')`; este no queda.
  *
- * Si la página ya declaró el carrier, `var` lo deja writable: se poda sobrescribiendo el valor sin
- * tocar el descriptor. Si además fuera no-writable no hay forma de podar sin romper la página y se
- * informa sin instalar nada. El retorno dice si se instaló la trampa, no si se podó.
+ * Si la página ya declaró el carrier, `var` lo deja writable: se neutraliza sobrescribiendo el valor
+ * sin tocar el descriptor. Si además fuera no-writable no hay forma de neutralizar sin romper la
+ * página y se informa sin instalar nada. El retorno dice si se instaló la trampa, no si se neutralizó.
  */
 export const shadowInlineCarrier = (host: CarrierHost, keys: readonly string[], status: CarrierStatus): boolean => {
   const existing = host.ytInitialPlayerResponse;
@@ -300,13 +322,13 @@ const healOrReport = (host: CarrierHost, value: JsonValue | undefined, status: C
   try {
     healCarrier(host, value, status);
   } catch {
-    // Propiedad no configurable y no writable: no hay forma de podar sin romper la página.
+    // Propiedad no configurable y no writable: no hay forma de neutralizar sin romper la página.
   }
 };
 
 /**
  * Se ejecuta al inyectarse el bundle de MAIN world; sin `window` (tests en Node) no hay nada que
- * envolver y se informa como no podado. Sin `eval` ni `new Function`: la CSP de YouTube los bloquea.
+ * envolver y se informa como no neutralizado. Sin `eval` ni `new Function`: la CSP de YouTube los bloquea.
  */
 export const installInnerTubePatch = (): CarrierStatus => {
   if (typeof window === "undefined") return carrierStatusSeed();
@@ -316,7 +338,7 @@ export const installInnerTubePatch = (): CarrierStatus => {
 
   const status = carrierStatusSeed();
   if (shouldPublishStatus(window.location.search)) window.__blockAdsInnerTube = status;
-  shadowInlineCarrier(window, PRUNED_KEYS, status);
+  shadowInlineCarrier(window, NEUTRALIZED_KEYS, status);
 
   return status;
 };

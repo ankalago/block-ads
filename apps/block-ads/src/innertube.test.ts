@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PRUNED_KEYS } from "./innertube.config.ts";
+import { NEUTRALIZED_KEYS } from "./innertube.config.ts";
 import {
   type CarrierHost,
   type CarrierStatus,
@@ -8,6 +8,7 @@ import {
   INLINE_CARRIER,
   initialResponseValue,
   isPrunedEndpoint,
+  neutralizeAdKeys,
   pruneResponsePayload,
   shadowInlineCarrier,
   shouldPublishStatus,
@@ -33,15 +34,18 @@ const NEXT_URL = "https://www.youtube.com/youtubei/v1/next?key=AIzaSyFixture";
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-/** Vista plana de un payload podado para poder aserir claves concretas sin aserciones de tipo. */
+/** Vista plana de un payload neutralizado para poder aserir claves concretas sin aserciones de tipo. */
 const view = (value: unknown): Record<string, unknown> => (isRecord(value) ? { ...value } : {});
 
 const key = (value: unknown, name: string): unknown => (isRecord(value) ? value[name] : undefined);
+
+const lengthOf = (value: unknown): number => (Array.isArray(value) ? value.length : -1);
 
 /** Payload con la forma de una respuesta real de `/youtubei/v1/player` (tarea 1). */
 const playerResponse = () => ({
   responseContext: { visitorData: "fixture" },
   playabilityStatus: { status: "OK" },
+  videoDetails: { videoId: "dQw4w9WgXcQ", title: "Fixture" },
   streamingData: { formats: [{ itag: 137 }], adaptiveFormats: [{ itag: 251 }] },
   adPlacements: [{ adPlacementRenderer: { renderer: "ad" } }],
   adSlots: [{ adSlotRenderer: { renderer: "slot" } }],
@@ -50,47 +54,78 @@ const playerResponse = () => ({
   playerConfig: { adsConfig: { adBreakHeartbeatParams: "nested-heartbeat" } },
 });
 
-describe("poda de respuestas de InnerTube", () => {
-  it("elimina adPlacements, adSlots y playerAds de la respuesta del player", () => {
-    const pruned = view(pruneResponsePayload(PLAYER_URL, playerResponse()));
+describe("neutralización de respuestas de InnerTube", () => {
+  it("mantiene adPlacements, adSlots y playerAds presentes con un array vacío", () => {
+    const neutralized = view(pruneResponsePayload(PLAYER_URL, playerResponse()));
 
-    expect(pruned.adPlacements).toBeUndefined();
-    expect(pruned.adSlots).toBeUndefined();
-    expect(pruned.playerAds).toBeUndefined();
+    expect("adPlacements" in neutralized).toBe(true);
+    expect(neutralized.adPlacements).toEqual([]);
+    expect("adSlots" in neutralized).toBe(true);
+    expect(neutralized.adSlots).toEqual([]);
+    expect("playerAds" in neutralized).toBe(true);
+    expect(neutralized.playerAds).toEqual([]);
   });
 
-  it("nunca elimina adBreakHeartbeatParams, ni siquiera anidado", () => {
-    const pruned = view(pruneResponsePayload(PLAYER_URL, playerResponse()));
+  it("vacía adBreakHeartbeatParams a string vacío, también anidado", () => {
+    const neutralized = view(pruneResponsePayload(PLAYER_URL, playerResponse()));
 
-    expect(pruned.adBreakHeartbeatParams).toBe("heartbeat-token");
-    expect(key(key(pruned.playerConfig, "adsConfig"), "adBreakHeartbeatParams")).toBe("nested-heartbeat");
+    expect("adBreakHeartbeatParams" in neutralized).toBe(true);
+    expect(neutralized.adBreakHeartbeatParams).toBe("");
+    expect(key(key(neutralized.playerConfig, "adsConfig"), "adBreakHeartbeatParams")).toBe("");
   });
 
-  it("conserva intacto el resto de la respuesta del player", () => {
-    const pruned = view(pruneResponsePayload(PLAYER_URL, playerResponse()));
+  it("conserva intactas las claves orgánicas de la respuesta del player", () => {
+    const neutralized = view(pruneResponsePayload(PLAYER_URL, playerResponse()));
 
-    expect(key(pruned.playabilityStatus, "status")).toBe("OK");
-    expect(key(pruned.streamingData, "formats")).toEqual([{ itag: 137 }]);
-    expect(key(pruned.streamingData, "adaptiveFormats")).toEqual([{ itag: 251 }]);
+    expect(key(neutralized.videoDetails, "title")).toBe("Fixture");
+    expect(key(neutralized.playabilityStatus, "status")).toBe("OK");
+    expect(lengthOf(key(neutralized.streamingData, "formats"))).toBe(1);
+    expect(key(neutralized.streamingData, "adaptiveFormats")).toEqual([{ itag: 251 }]);
   });
 
-  it("poda las claves de anuncio anidadas en las respuestas de next", () => {
+  it("neutraliza las claves de anuncio anidadas en las respuestas de next", () => {
     const payload = {
       contents: { adSlots: [{ adSlotRenderer: {} }], tabs: [{ title: "Home" }] },
       onResponseReceivedActions: [{ adPlacements: [{ adPlacementRenderer: {} }] }],
       adBreakHeartbeatParams: "hb",
     };
 
-    const pruned = view(pruneResponsePayload(NEXT_URL, payload));
+    const neutralized = view(pruneResponsePayload(NEXT_URL, payload));
 
-    expect(key(pruned.contents, "adSlots")).toBeUndefined();
-    expect(key(pruned.contents, "tabs")).toEqual([{ title: "Home" }]);
-    expect(pruned.onResponseReceivedActions).toEqual([{}]);
-    expect(pruned.adBreakHeartbeatParams).toBe("hb");
+    expect(key(neutralized.contents, "adSlots")).toEqual([]);
+    expect(key(neutralized.contents, "tabs")).toEqual([{ title: "Home" }]);
+    expect(neutralized.onResponseReceivedActions).toEqual([{ adPlacements: [] }]);
+    expect(neutralized.adBreakHeartbeatParams).toBe("");
+  });
+
+  it("elimina una clave de anuncio cuyo valor no tiene vacío propio (number, boolean o null)", () => {
+    const neutralized = view(pruneResponsePayload(PLAYER_URL, { adPlacements: 3, adSlots: true, playerAds: null }));
+
+    expect("adPlacements" in neutralized).toBe(false);
+    expect("adSlots" in neutralized).toBe(false);
+    expect("playerAds" in neutralized).toBe(false);
+  });
+
+  it("neutraliza de forma pura con el vacío del tipo runtime y descarta el resto", () => {
+    const source = {
+      adPlacements: [{ ad: true }],
+      adSlots: 7,
+      playerAds: false,
+      adBreakHeartbeatParams: "tok",
+      videoDetails: { title: "Fixture" },
+    };
+
+    const result = view(neutralizeAdKeys(source, NEUTRALIZED_KEYS));
+
+    expect(result.adPlacements).toEqual([]);
+    expect(result.adBreakHeartbeatParams).toBe("");
+    expect("adSlots" in result).toBe(false);
+    expect("playerAds" in result).toBe(false);
+    expect(key(result.videoDetails, "title")).toBe("Fixture");
   });
 
   it("devuelve el mismo objeto cuando la respuesta no trae claves de anuncio", () => {
-    const clean = { playabilityStatus: { status: "OK" }, adBreakHeartbeatParams: "hb" };
+    const clean = { playabilityStatus: { status: "OK" }, videoDetails: { videoId: "dQw4w9WgXcQ" } };
 
     expect(pruneResponsePayload(PLAYER_URL, clean)).toBe(clean);
   });
@@ -103,6 +138,7 @@ describe("poda de respuestas de InnerTube", () => {
     expect(original.adPlacements).toHaveLength(1);
     expect(original.adSlots).toHaveLength(1);
     expect(original.playerAds).toHaveLength(1);
+    expect(original.adBreakHeartbeatParams).toBe("heartbeat-token");
   });
 
   it("no toca las respuestas de endpoints que no son player ni next", () => {
@@ -121,31 +157,31 @@ describe("poda de respuestas de InnerTube", () => {
 });
 
 describe("sombreado de respuestas XHR", () => {
-  const pruned = { adBreakHeartbeatParams: "Q0FBJTNE" };
+  const neutralized = { adBreakHeartbeatParams: "" };
 
   it("sombrean response cuando la página lee JSON parseado, que es la clave del parche", () => {
-    const shadows = xhrShadows("json", pruned);
+    const shadows = xhrShadows("json", neutralized);
 
-    expect(shadows).toEqual([{ property: "response", value: pruned }]);
+    expect(shadows).toEqual([{ property: "response", value: neutralized }]);
   });
 
   it("sombread responseText y response en el modo por defecto y en text", () => {
-    const body = JSON.stringify(pruned);
+    const body = JSON.stringify(neutralized);
 
-    expect(xhrShadows("", pruned)).toEqual([
+    expect(xhrShadows("", neutralized)).toEqual([
       { property: "responseText", value: body },
       { property: "response", value: body },
     ]);
-    expect(xhrShadows("text", pruned)).toEqual(xhrShadows("", pruned));
+    expect(xhrShadows("text", neutralized)).toEqual(xhrShadows("", neutralized));
   });
 
   it("no promete podas imposibles en responseType binario", () => {
-    expect(xhrShadows("arraybuffer", pruned)).toEqual([]);
-    expect(xhrShadows("blob", pruned)).toEqual([]);
+    expect(xhrShadows("arraybuffer", neutralized)).toEqual([]);
+    expect(xhrShadows("blob", neutralized)).toEqual([]);
   });
 });
 
-describe("poda del carrier inline de la primera respuesta", () => {
+describe("neutralización del carrier inline de la primera respuesta", () => {
   const carrier = () => ({
     videoDetails: { videoId: "dQw4w9WgXcQ" },
     adPlacements: [{ kind: "AD_PLACEMENT_KIND_END" }],
@@ -154,52 +190,52 @@ describe("poda del carrier inline de la primera respuesta", () => {
     adBreakHeartbeatParams: "Q0FBJTNE",
   });
 
-  it("devuelven el carrier sin claves de anuncio y con el heartbeat intacto", () => {
-    const result = initialResponseValue(carrier(), PRUNED_KEYS);
+  it("devuelven el carrier con las claves de anuncio presentes y vacías", () => {
+    const result = initialResponseValue(carrier(), NEUTRALIZED_KEYS);
 
-    expect(key(result, "adBreakHeartbeatParams")).toBe("Q0FBJTNE");
+    expect(key(result, "adPlacements")).toEqual([]);
+    expect(key(result, "playerAds")).toEqual([]);
+    expect(key(result, "adSlots")).toEqual([]);
+    expect(key(result, "adBreakHeartbeatParams")).toBe("");
     expect(key(result, "videoDetails")).toEqual({ videoId: "dQw4w9WgXcQ" });
-    expect(view(result)).not.toHaveProperty("adPlacements");
-    expect(view(result)).not.toHaveProperty("playerAds");
-    expect(view(result)).not.toHaveProperty("adSlots");
   });
 
   it("no tocan valores que no son un objeto JSON", () => {
-    expect(initialResponseValue(undefined, PRUNED_KEYS)).toBeUndefined();
-    expect(initialResponseValue(null, PRUNED_KEYS)).toBeNull();
-    expect(initialResponseValue("hola", PRUNED_KEYS)).toBe("hola");
-    expect(initialResponseValue(42, PRUNED_KEYS)).toBe(42);
-    expect(initialResponseValue([carrier()], PRUNED_KEYS)).toEqual([carrier()]);
+    expect(initialResponseValue(undefined, NEUTRALIZED_KEYS)).toBeUndefined();
+    expect(initialResponseValue(null, NEUTRALIZED_KEYS)).toBeNull();
+    expect(initialResponseValue("hola", NEUTRALIZED_KEYS)).toBe("hola");
+    expect(initialResponseValue(42, NEUTRALIZED_KEYS)).toBe(42);
+    expect(initialResponseValue([carrier()], NEUTRALIZED_KEYS)).toEqual([carrier()]);
   });
 
-  it("devuelven la misma referencia cuando no hay nada que podar", () => {
+  it("devuelven la misma referencia cuando no hay nada que neutralizar", () => {
     const clean = { videoDetails: { videoId: "x" } };
 
-    expect(initialResponseValue(clean, PRUNED_KEYS)).toBe(clean);
+    expect(initialResponseValue(clean, NEUTRALIZED_KEYS)).toBe(clean);
   });
 
-  it("instalan antes que la página y podan lo que esta asigna después", () => {
+  it("instalan antes que la página y neutralizan lo que esta asigna después", () => {
     const host: CarrierHost = {};
     const status = carrierStatusSeed();
 
-    expect(shadowInlineCarrier(host, PRUNED_KEYS, status)).toBe(true);
+    expect(shadowInlineCarrier(host, NEUTRALIZED_KEYS, status)).toBe(true);
     host.ytInitialPlayerResponse = carrier();
 
     const seen = host.ytInitialPlayerResponse;
-    expect(view(seen)).not.toHaveProperty("playerAds");
-    expect(key(seen, "adBreakHeartbeatParams")).toBe("Q0FBJTNE");
+    expect(key(seen, "playerAds")).toEqual([]);
+    expect(key(seen, "adBreakHeartbeatParams")).toBe("");
   });
 
-  it("podan también el valor que ya estaba asignado cuando la propiedad existía como dato", () => {
+  it("neutralizan también el valor que ya estaba asignado cuando la propiedad existía como dato", () => {
     const host: CarrierHost = { ytInitialPlayerResponse: carrier() };
     const status = carrierStatusSeed();
 
-    expect(shadowInlineCarrier(host, PRUNED_KEYS, status)).toBe(false);
+    expect(shadowInlineCarrier(host, NEUTRALIZED_KEYS, status)).toBe(false);
     expect(status.carrierPruned).toBe(true);
-    expect(view(host.ytInitialPlayerResponse)).not.toHaveProperty("adPlacements");
+    expect(key(host.ytInitialPlayerResponse, "adPlacements")).toEqual([]);
   });
 
-  it("informan que no instalaron la trampa si la propiedad ya estaba declarada, y aun así podan", () => {
+  it("informan que no instalaron la trampa si la propiedad ya estaba declarada, y aun así neutralizan", () => {
     const host: CarrierHost = {};
     const existing = carrier();
     const status = carrierStatusSeed();
@@ -210,9 +246,9 @@ describe("poda del carrier inline de la primera respuesta", () => {
       writable: true,
     });
 
-    expect(shadowInlineCarrier(host, PRUNED_KEYS, status)).toBe(false);
+    expect(shadowInlineCarrier(host, NEUTRALIZED_KEYS, status)).toBe(false);
     expect(status.carrierPruned).toBe(true);
-    expect(view(host.ytInitialPlayerResponse)).not.toHaveProperty("adPlacements");
+    expect(key(host.ytInitialPlayerResponse, "adPlacements")).toEqual([]);
   });
 
   it("no tocan un carrier no-configurable y no-writable, y avisan que no podaron", () => {
@@ -226,13 +262,13 @@ describe("poda del carrier inline de la primera respuesta", () => {
       writable: false,
     });
 
-    expect(shadowInlineCarrier(host, PRUNED_KEYS, status)).toBe(false);
+    expect(shadowInlineCarrier(host, NEUTRALIZED_KEYS, status)).toBe(false);
     expect(status.carrierPruned).toBe(false);
     expect(host.ytInitialPlayerResponse).toBe(existing);
   });
 });
 
-describe("el carrier inline vuelve a ser data property después de podarlo", () => {
+describe("el carrier inline vuelve a ser data property después de neutralizarlo", () => {
   const carrier = () => ({
     videoDetails: { videoId: "dQw4w9WgXcQ" },
     adPlacements: [{ kind: "AD_PLACEMENT_KIND_END" }],
@@ -251,7 +287,7 @@ describe("el carrier inline vuelve a ser data property después de podarlo", () 
     const host: CarrierHost = {};
     const status = carrierStatusSeed();
 
-    shadowInlineCarrier(host, PRUNED_KEYS, status);
+    shadowInlineCarrier(host, NEUTRALIZED_KEYS, status);
     host.ytInitialPlayerResponse = carrier();
 
     expect(carrierDescriptor(host)).toEqual(varShape);
@@ -261,7 +297,7 @@ describe("el carrier inline vuelve a ser data property después de podarlo", () 
     const host: CarrierHost = {};
     const status = carrierStatusSeed();
 
-    shadowInlineCarrier(host, PRUNED_KEYS, status);
+    shadowInlineCarrier(host, NEUTRALIZED_KEYS, status);
     host.ytInitialPlayerResponse = carrier();
     expect(host.ytInitialPlayerResponse).toBeDefined();
 
@@ -272,7 +308,7 @@ describe("el carrier inline vuelve a ser data property después de podarlo", () 
     const host: CarrierHost = {};
     const status = carrierStatusSeed();
 
-    shadowInlineCarrier(host, PRUNED_KEYS, status);
+    shadowInlineCarrier(host, NEUTRALIZED_KEYS, status);
     host.ytInitialPlayerResponse = carrier();
 
     const descriptor = Object.getOwnPropertyDescriptor(host, INLINE_CARRIER);
@@ -284,7 +320,7 @@ describe("el carrier inline vuelve a ser data property después de podarlo", () 
     const host: CarrierHost = {};
     const status = carrierStatusSeed();
 
-    expect(shadowInlineCarrier(host, PRUNED_KEYS, status)).toBe(true);
+    expect(shadowInlineCarrier(host, NEUTRALIZED_KEYS, status)).toBe(true);
     expect(status).toEqual({ accessorInstalled: true, carrierPruned: false });
 
     host.ytInitialPlayerResponse = carrier();
@@ -295,21 +331,36 @@ describe("el carrier inline vuelve a ser data property después de podarlo", () 
     const host: CarrierHost = { ytInitialPlayerResponse: carrier() };
     const status: CarrierStatus = carrierStatusSeed();
 
-    expect(shadowInlineCarrier(host, PRUNED_KEYS, status)).toBe(false);
+    expect(shadowInlineCarrier(host, NEUTRALIZED_KEYS, status)).toBe(false);
 
     expect(carrierDescriptor(host)).toEqual(varShape);
     expect(status.carrierPruned).toBe(true);
-    expect(view(host.ytInitialPlayerResponse)).not.toHaveProperty("adPlacements");
+    expect(key(host.ytInitialPlayerResponse, "adPlacements")).toEqual([]);
   });
 
-  it("restauran sin podar un valor que no es un objeto JSON", () => {
+  it("restauran sin neutralizar un valor que no es un objeto JSON", () => {
     const host: CarrierHost = {};
     const status = carrierStatusSeed();
 
-    shadowInlineCarrier(host, PRUNED_KEYS, status);
+    shadowInlineCarrier(host, NEUTRALIZED_KEYS, status);
     host.ytInitialPlayerResponse = "ok";
 
     expect(host.ytInitialPlayerResponse).toBe("ok");
+    expect(carrierDescriptor(host)).toEqual(varShape);
+  });
+
+  it("neutraliza el carrier de extremo a extremo a través de la trampa y deja una data property no configurable", () => {
+    const host: CarrierHost = {};
+    const status = carrierStatusSeed();
+
+    shadowInlineCarrier(host, NEUTRALIZED_KEYS, status);
+    host.ytInitialPlayerResponse = {
+      adPlacements: [{ kind: "AD_PLACEMENT_KIND_END" }],
+      adBreakHeartbeatParams: "abc",
+    };
+
+    expect(key(host.ytInitialPlayerResponse, "adPlacements")).toEqual([]);
+    expect(key(host.ytInitialPlayerResponse, "adBreakHeartbeatParams")).toBe("");
     expect(carrierDescriptor(host)).toEqual(varShape);
   });
 
@@ -349,7 +400,7 @@ describe("telemetría de estado opt-in por token de URL", () => {
     };
     const status = carrierStatusSeed();
 
-    shadowInlineCarrier(host, PRUNED_KEYS, status);
+    shadowInlineCarrier(host, NEUTRALIZED_KEYS, status);
 
     expect(Object.keys(host)).not.toContain("__blockAdsInnerTube");
   });
