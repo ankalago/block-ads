@@ -701,8 +701,25 @@ adsFound: { adPlacements: 3, adSlots: 3, playerAds: 3, adBreakHeartbeatParams: 3
 
 Lectura con `adsFound`:
 
-| telemetría | interpretación |
-|---|---|
-| `adsFound.adPlacements > 0` y `muro false` y reproduce | había anuncios, los neutralizamos, el player no se enteró | **bloqueo funcionando** |
-| `adsFound` ausente y reproduce | ese video no traía ad break | hay que probar con otro video |
-| `adsFound > 0` y `muro true` | neutralizar no alcanza con este peso | volver a medir forma por forma |
+| adsFound | muro | reproducción | interpretación |
+|---|---|---|---|
+| `adPlacements > 0` | false | OK | **había anuncio y lo neutralizamos**: tarea 7 cerrada |
+| `{}` | false | OK | ese video no traía ad break; probar con otro |
+| `adPlacements > 0` | true | ERROR | neutralizar no alcanza: hay que ver qué forma exacta exige el player |
+
+## 18. Protocolo de medición en frío (para que la respuesta sea sí/no)
+
+El muro es **stateful**: depende del `visitorData` y del caché del navegador, así que una sola
+medición no prueba nada. Secuencia que sí decide:
+
+1. Cerrar **todas** las pestañas de YouTube (limpia el carrier en memoria).
+2. `chrome://extensions` → recargar la extensión (deja atrás cualquier dist viejo).
+3. Abrir una pestaña nueva con `…&blockadsdebug` y pegar la sonda **apenas carga**.
+4. Volver a correr la sonda a los 90 s: un midroll vive ahí, no en el arranque.
+
+La sonda tiene que imprimir los cuatro campos juntos: `telemetria` (con `adsFound`),
+`estado` (`__blockAdsInnerTube`: `accessorInstalled`/`carrierPruned`), `muro` por texto visible y
+`video` (`currentSrc`, `paused`, `readyState`). Con `accessorInstalled: false` y `carrierPruned: true`
+perdimos la carrera pero sobrescribimos el carrier: sigue siendo neutralización válida, solo cambia
+por qué.
+
