@@ -68,6 +68,10 @@ const endpointOf = (url: string): string => {
 
 export const isPrunedEndpoint = (url: string): boolean => PRUNED_ENDPOINTS.has(endpointOf(url));
 
+/** Claves de anuncio que hay que neutralizar en ese endpoint; vacías si no se poda. */
+export const neutralizationKeysFor = (url: string): readonly string[] =>
+  PRUNE_RULES.find((rule) => rule.endpoint === endpointOf(url))?.keys ?? [];
+
 export const pruneResponsePayload = (url: string, payload: JsonValue): JsonValue => {
   const endpoint = endpointOf(url);
   const rule = PRUNE_RULES.find((candidate) => candidate.endpoint === endpoint);
@@ -112,14 +116,66 @@ const withPrunedBody = (response: Response, payload: JsonValue): Response => {
   });
 };
 
-const pruneResponse = async (response: Response, url: string): Promise<Response> => {
+/**
+ * Tamaño de un valor de anuncio: elementos del array, claves del objeto, 1 si el string trae algo.
+ * Un vacío propio (`[]`, `{}`, `""`) y los escalares valen 0: no eran un anuncio.
+ */
+const weightOf = (value: JsonValue): number => {
+  if (isJsonArray(value)) return value.length;
+  if (isJsonObject(value)) return Object.keys(value).length;
+  return typeof value === "string" && value.length > 0 ? 1 : 0;
+};
+
+const countEntry = (counts: Record<string, number>, key: string, value: JsonValue, keys: readonly string[]): void => {
+  const weight = keys.includes(key) ? weightOf(value) : 0;
+  if (weight > 0) counts[key] = (counts[key] ?? 0) + weight;
+};
+
+const walkAdKeys = (counts: Record<string, number>, value: JsonValue, keys: readonly string[]): void => {
+  if (isJsonArray(value)) {
+    value.forEach((item) => {
+      walkAdKeys(counts, item, keys);
+    });
+    return;
+  }
+  if (!isJsonObject(value)) return;
+
+  Object.entries(value).forEach(([key, child]) => {
+    countEntry(counts, key, child, keys);
+    walkAdKeys(counts, child, keys);
+  });
+};
+
+/**
+ * Cuántos anuncios había **antes** de neutralizar, por clave. Sin esto no se puede distinguir
+ * "neutralizamos un pre-roll" de "este vídeo no traía anuncios": el resultado final es `[]` en
+ * los dos casos. Solo se registra una clave si su peso es mayor que cero.
+ */
+export const countAdKeys = (value: JsonValue, keys: readonly string[]): Record<string, number> => {
+  const counts: Record<string, number> = {};
+  walkAdKeys(counts, value, keys);
+
+  return counts;
+};
+
+export const markAdsFound = (network: NetworkStatus, counts: Record<string, number>): void => {
+  Object.entries(counts).forEach(([key, weight]) => {
+    network.adsFound[key] = (network.adsFound[key] ?? 0) + weight;
+  });
+};
+
+const pruneResponse = async (response: Response, url: string, network: NetworkStatus): Promise<Response> => {
   if (!response.ok || !isJsonResponse(response)) return response;
 
   const payload = await readJson(response.clone());
   if (payload === undefined) return response;
 
   const pruned = pruneResponsePayload(url, payload);
-  return pruned === payload ? response : withPrunedBody(response, pruned);
+  if (pruned === payload) return response;
+
+  markAdsFound(network, countAdKeys(payload, neutralizationKeysFor(url)));
+
+  return withPrunedBody(response, pruned);
 };
 
 type RequestInput = RequestInfo | URL;
@@ -142,7 +198,7 @@ export const installFetchPatch = (network: NetworkStatus): void => {
     const response = await originalFetch(input, init);
     if (!isPrunedEndpoint(url)) return response;
 
-    const pruned = await pruneResponse(response, url);
+    const pruned = await pruneResponse(response, url, network);
     if (pruned !== response) markNeutralized(network);
 
     return pruned;
@@ -208,6 +264,7 @@ const overrideXhrPayload = (target: XMLHttpRequest, url: string, network: Networ
     defineShadow(target, shadow.property, shadow.value);
   });
   markNeutralized(network);
+  markAdsFound(network, countAdKeys(payload, neutralizationKeysFor(url)));
 };
 
 const prunedXhrMethods = (
@@ -282,14 +339,26 @@ export const DEBUG_PARAM = "blockadsdebug";
  * timing de la página sí muestra llamadas a `/youtubei/v1/player`, el parche está vivo pero la
  * página usa otro realm (fetch limpio de un iframe): un bypass, no un fallo del código.
  */
-export type NetworkStatus = { seen: number; matched: number; neutralized: number; matchedPaths: string[] };
+export type NetworkStatus = {
+  seen: number;
+  matched: number;
+  neutralized: number;
+  adsFound: Record<string, number>;
+  matchedPaths: string[];
+};
 
 /** Techo de rutas guardadas: suficiente para leer la serie, acotado para no crecer sin límite. */
 export const MAX_MATCHED_PATHS = 8;
 
 export const NETWORK_STATUS_KEY = "__blockAdsNetwork";
 
-export const networkStatusSeed = (): NetworkStatus => ({ seen: 0, matched: 0, neutralized: 0, matchedPaths: [] });
+export const networkStatusSeed = (): NetworkStatus => ({
+  seen: 0,
+  matched: 0,
+  neutralized: 0,
+  adsFound: {},
+  matchedPaths: [],
+});
 
 /** Registra una petición que efectivamente pasó por el transport parcheado, al momento de enviarla. */
 export const recordTransport = (network: NetworkStatus, url: string): void => {

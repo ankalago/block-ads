@@ -345,3 +345,35 @@ invisible to the counter, which is exactly the signal we are looking for in Chro
 `data` + `configurable: false`.
 
 Still open: task 7. The measurement in real Chrome decides between the two readings above.
+
+## Wall closed, efficacy still open (0cd2f77 -> this unit)
+
+Paul's three fresh loads (§17 of `youtube-evidence.md`) settle two things at once:
+
+- **The wall is gone.** Same scriptlet, same rules, only the response *shape* changed (delete -> neutralise):
+  `carrier 0/0/0`, `readyState 4`, `currentSrc` a `blob:`, no enforcement message. The §15 hypothesis was
+  right and the §12/§13/§14 canary hunt was chasing a symptom.
+- **There is no clean-realm bypass.** A real `/youtubei/v1/player` call went through the patched
+  `window.fetch` and came back reconstructed: `matched 1`, `neutralized 1`.
+
+`endpoints_que_la_pagina_pidio: {}` is a probe artifact, not evidence: `performance.getEntriesByType`
+buffers 250 resource entries and a watch page overflows it, so the earliest entries (the load-time player
+call) are gone by the time the probe runs. Recorded so nobody re-reads that probe as "no request".
+
+What task 7 still lacks is proof of *efficacy*: `adPlacements: []` looks identical whether we killed a
+pre-roll or the video never had one. Added in this unit, counted **before** emptying:
+
+- `countAdKeys(payload, keys)` -> weight per ad key (array length, object key count, non-empty string = 1),
+  nested occurrences included, zero-weight keys omitted.
+- `adsFound` on `NetworkStatus`, accumulated by `markAdsFound` on every response we actually rebuild
+  (fetch and XHR both), reported only under `blockadsdebug` like the rest.
+- `neutralizationKeysFor(url)` so the counter uses the endpoint's own key set instead of a global guess.
+- extension tests 77 -> 84, `pnpm check:ci` exit 0 (145 core, 8 rules).
+
+Artifact check against the rebuilt `dist/innertube.js` in a Node `vm`: three patched player/next responses
+carrying one ad each report `adsFound { adPlacements: 3, adSlots: 3, playerAds: 3, adBreakHeartbeatParams: 3 }`
+with `seen 4, matched 3, neutralized 3`, the pre-patch `fetch` reference still invisible to the counter, and
+the carrier descriptor still `data` + `configurable: false`.
+
+Next: one ad-bearing video, three runs with the new probe. `adsFound.adPlacements > 0` with `muro false` and
+playback = blocking works and task 7 closes. `adsFound` absent = wrong video, no ad break scheduled.

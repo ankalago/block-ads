@@ -4,13 +4,16 @@ import {
   type CarrierHost,
   type CarrierStatus,
   carrierStatusSeed,
+  countAdKeys,
   DEBUG_PARAM,
   INLINE_CARRIER,
   initialResponseValue,
   isPrunedEndpoint,
+  markAdsFound,
   markNeutralized,
   NETWORK_STATUS_KEY,
   networkStatusSeed,
+  neutralizationKeysFor,
   neutralizeAdKeys,
   pruneResponsePayload,
   recordTransport,
@@ -416,7 +419,7 @@ describe("telemetría de estado opt-in por token de URL", () => {
 
 describe("telemetría de red para distinguir un parche muerto de un bypass", () => {
   it("seed de red arranca en cero y sin rutas", () => {
-    expect(networkStatusSeed()).toEqual({ seen: 0, matched: 0, neutralized: 0, matchedPaths: [] });
+    expect(networkStatusSeed()).toEqual({ seen: 0, matched: 0, neutralized: 0, adsFound: {}, matchedPaths: [] });
   });
 
   it("cuentan cada petición que pasa por el transport, aunque no sea de poda", () => {
@@ -424,7 +427,7 @@ describe("telemetría de red para distinguir un parche muerto de un bypass", () 
 
     recordTransport(status, "https://www.youtube.com/youtubei/v1/browse");
 
-    expect(status).toEqual({ seen: 1, matched: 0, neutralized: 0, matchedPaths: [] });
+    expect(status).toEqual({ seen: 1, matched: 0, neutralized: 0, adsFound: {}, matchedPaths: [] });
   });
 
   it("cuenten matched y guardan la ruta sin query cuando la petición es de poda", () => {
@@ -475,7 +478,53 @@ describe("telemetría de red para distinguir un parche muerto de un bypass", () 
       seen: 1,
       matched: 1,
       neutralized: 0,
+      adsFound: {},
       matchedPaths: ["/youtubei/v1/player"],
     });
+  });
+});
+
+describe("conteo de anuncios reales antes de neutralizar", () => {
+  it("cuentan los elementos de cada clave de anuncio llena, incluidas las anidadas", () => {
+    const found = countAdKeys(playerResponse(), NEUTRALIZED_KEYS);
+
+    expect(found).toEqual({ adPlacements: 1, adSlots: 1, playerAds: 1, adBreakHeartbeatParams: 2 });
+  });
+
+  it("no registran nada cuando las claves ya vienen vacías", () => {
+    const found = countAdKeys(
+      { adPlacements: [], playerAds: {}, adBreakHeartbeatParams: "", videoDetails: { videoId: "x" } },
+      NEUTRALIZED_KEYS,
+    );
+
+    expect(found).toEqual({});
+  });
+
+  it("suman un heartbeat vacío como cero, no como uno", () => {
+    expect(countAdKeys({ adBreakHeartbeatParams: "" }, NEUTRALIZED_KEYS)).toEqual({});
+  });
+
+  it("ignoran las claves que no están en la config", () => {
+    expect(countAdKeys({ streamingData: { formats: [{ itag: 137 }, { itag: 251 }] } }, NEUTRALIZED_KEYS)).toEqual({});
+  });
+
+  it("cuentan dentro de arrays de acciones, que es donde vive el ad break real", () => {
+    const payload = { onResponseReceivedActions: [{ adPlacements: [{ kind: "preroll" }, { kind: "midroll" }] }] };
+
+    expect(countAdKeys(payload, NEUTRALIZED_KEYS)).toEqual({ adPlacements: 2 });
+  });
+
+  it("acumulan por clave cada respuesta neutralizada", () => {
+    const status = networkStatusSeed();
+
+    markAdsFound(status, { adPlacements: 1, playerAds: 1 });
+    markAdsFound(status, { adPlacements: 2 });
+
+    expect(status.adsFound).toEqual({ adPlacements: 3, playerAds: 1 });
+  });
+
+  it("dan las claves de poda del endpoint pedido, y ninguna para los que no se podan", () => {
+    expect(neutralizationKeysFor(PLAYER_URL)).toEqual(NEUTRALIZED_KEYS);
+    expect(neutralizationKeysFor("https://www.youtube.com/youtubei/v1/browse")).toEqual([]);
   });
 });

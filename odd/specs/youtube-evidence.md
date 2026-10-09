@@ -665,3 +665,44 @@ console.log(JSON.stringify({
 
 Si `pageCalledEndpoints` tiene entradas y `telemetry.matched` es `0`, el bypass está confirmado y hay
 que cambiar de vector (el parche de `window.fetch` no alcanza).
+
+## 17. El muro desapareció con la neutralización y el parche de red sí llega (2026-10-09, Chrome real de Paul)
+
+Tres cargas consecutivas con `?blockadsdebug`, extensión recargada y pestañas nuevas:
+
+```text
+run 1  seen 29  matched 1  neutralized 1  matchedPaths [/youtubei/v1/player]  carrier 0/0/0  muro false  paused true   readyState 4
+run 2  seen 33  matched 1  neutralized 1  matchedPaths [/youtubei/v1/player]  carrier 0/0/0  muro false  paused false  readyState 4
+run 3  seen 25  matched 1  neutralized 1  matchedPaths [/youtubei/v1/player]  carrier 0/0/0  muro false  paused false  readyState 4
+```
+
+Qué mata y qué deja abierto:
+
+- **La hipótesis del bypass de realm murió.** Hubo una petición real a `/youtubei/v1/player` y pasó por
+  nuestro `window.fetch` parcheado (`matched 1`, `neutralized 1`). No hace falta parchar el realm del
+  iframe: el vector actual funciona.
+- **El disparador del muro era la forma de la response**, exactamente lo que sospechaba §15: con las
+  claves presentes y vacías (`carrier 0/0/0`) el player reproduce (`readyState 4`, `currentSrc` con
+  `blob:`) y el mensaje de enforcement no aparece. Antes: claves borradas → `status ERROR`,
+  `currentSrc ""`, muro.
+- `endpoints_que_la_pagina_pidio: {}` **no** significa que la página no haya pedido el player: es el
+  artefacto de la sonda. `performance.getEntriesByType("resource")` tiene un buffer acotado (250
+  entradas por default) y un watch page lo desborda, así que las entradas tempranas — la llamada al
+  player en el arranque — se pierden. La prueba de la llamada es el contador del transport, que sí
+  vive dentro del realm. Queda registrado para no volver a leer mal esa sonda.
+
+Lo que queda abierto es eficacia, no muro: `neutralized 1` prueba que reconstruimos una response, pero
+`adPlacements: []` se ve igual cuando acabamos de neutralizar un pre-roll que cuando el video nunca trajo
+anuncios. Por eso la telemetría ahora también cuenta `adsFound` (peso por clave **antes** de vaciarla):
+
+```text
+adsFound: { adPlacements: 3, adSlots: 3, playerAds: 3, adBreakHeartbeatParams: 3 }
+```
+
+Lectura con `adsFound`:
+
+| telemetría | interpretación |
+|---|---|
+| `adsFound.adPlacements > 0` y `muro false` y reproduce | había anuncios, los neutralizamos, el player no se enteró | **bloqueo funcionando** |
+| `adsFound` ausente y reproduce | ese video no traía ad break | hay que probar con otro video |
+| `adsFound > 0` y `muro true` | neutralizar no alcanza con este peso | volver a medir forma por forma |
