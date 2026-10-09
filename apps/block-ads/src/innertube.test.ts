@@ -8,8 +8,12 @@ import {
   INLINE_CARRIER,
   initialResponseValue,
   isPrunedEndpoint,
+  markNeutralized,
+  NETWORK_STATUS_KEY,
+  networkStatusSeed,
   neutralizeAdKeys,
   pruneResponsePayload,
+  recordTransport,
   shadowInlineCarrier,
   shouldPublishStatus,
   xhrShadows,
@@ -403,5 +407,75 @@ describe("telemetría de estado opt-in por token de URL", () => {
     shadowInlineCarrier(host, NEUTRALIZED_KEYS, status);
 
     expect(Object.keys(host)).not.toContain("__blockAdsInnerTube");
+  });
+
+  it("fija el nombre del estado de red para que no se renombre por accidente", () => {
+    expect(NETWORK_STATUS_KEY).toBe("__blockAdsNetwork");
+  });
+});
+
+describe("telemetría de red para distinguir un parche muerto de un bypass", () => {
+  it("seed de red arranca en cero y sin rutas", () => {
+    expect(networkStatusSeed()).toEqual({ seen: 0, matched: 0, neutralized: 0, matchedPaths: [] });
+  });
+
+  it("cuentan cada petición que pasa por el transport, aunque no sea de poda", () => {
+    const status = networkStatusSeed();
+
+    recordTransport(status, "https://www.youtube.com/youtubei/v1/browse");
+
+    expect(status).toEqual({ seen: 1, matched: 0, neutralized: 0, matchedPaths: [] });
+  });
+
+  it("cuenten matched y guardan la ruta sin query cuando la petición es de poda", () => {
+    const status = networkStatusSeed();
+
+    recordTransport(status, PLAYER_URL);
+    recordTransport(status, NEXT_URL);
+
+    expect(status.matched).toBe(2);
+    expect(status.matchedPaths).toEqual(["/youtubei/v1/next", "/youtubei/v1/player"]);
+  });
+
+  it("no guardan rutas de peticiones que no se podan", () => {
+    const status = networkStatusSeed();
+
+    recordTransport(status, "https://www.youtube.com/api/timedtext?v=x");
+
+    expect(status.matchedPaths).toEqual([]);
+  });
+
+  it("acotan las rutas a ocho y conservan las más recientes", () => {
+    const status = networkStatusSeed();
+
+    Array.from({ length: 11 }, () => recordTransport(status, PLAYER_URL));
+
+    expect(status.seen).toBe(11);
+    expect(status.matched).toBe(11);
+    expect(status.matchedPaths).toHaveLength(8);
+    expect(status.matchedPaths.every((path) => path === "/youtubei/v1/player")).toBe(true);
+  });
+
+  it("suman neutralized solo cuando la respuesta se reconstruyó", () => {
+    const status = networkStatusSeed();
+
+    recordTransport(status, PLAYER_URL);
+    expect(status.neutralized).toBe(0);
+
+    markNeutralized(status);
+    expect(status.neutralized).toBe(1);
+  });
+
+  it("leen la URL relativa igual que el filtro de endpoint", () => {
+    const status = networkStatusSeed();
+
+    recordTransport(status, "/youtubei/v1/player?key=AIzaSyFixture");
+
+    expect(status).toEqual({
+      seen: 1,
+      matched: 1,
+      neutralized: 0,
+      matchedPaths: ["/youtubei/v1/player"],
+    });
   });
 });

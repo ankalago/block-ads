@@ -31,10 +31,14 @@ scriptlet engine beyond what YouTube needs, UI options beyond enable/disable.
   live inside one app.
 - **Packages**: `@block-ads/core` (pure domain: filter IR, parser, DNR compiler, no Chrome
   APIs) and `@block-ads/rules` (rule data). The extension is `apps/block-ads`.
-- **InnerTube patching**: inject in MAIN world, intercept fetch/XHR, delete `adPlacements`,
-  `adSlots`, `playerAds` from `/youtubei/v1/player` and `/next`.
-- **Playback safety**: never delete `adBreakHeartbeatParams` — removing it leaves the player
-  in an unplayable state. Conservative pruning only.
+- **InnerTube patching**: inject in MAIN world, intercept fetch/XHR and the inline carrier, and
+  **neutralize** `adPlacements`, `adSlots`, `playerAds`, `adBreakHeartbeatParams` on
+  `/youtubei/v1/player` and `/next` (keep the key, empty value of its own kind) rather than
+  deleting them.
+- **Playback safety**: superseded by measurement. The old "never delete `adBreakHeartbeatParams`"
+  line was a recon assumption; deleting ad keys outright produced `playabilityStatus.status = ERROR`
+  with an empty `video.currentSrc`, i.e. the wall. Neutralisation is the current rule, and it is
+  what the next measurement has to confirm or kill. Conservative pruning only.
 - **DNR limits**: 30,000 static rules guaranteed, 1,000 regex rules, RE2 engine only (no
   backreferences, no lookahead). The compiler must validate against these.
 
@@ -306,3 +310,38 @@ and `streamingData.formats` intact, descriptor `data` + `configurable: false`, a
 the token. `grep -c PROTECTED_KEYS dist/innertube.js` -> 0.
 
 Not yet measured: whether neutralisation lifts the wall. The decision tree is in `youtube-evidence.md` §15.
+
+## Network telemetry close-out (neutralisation -> opt-in `__blockAdsNetwork`)
+
+Neutralisation is committed but not yet measured in Chrome, and the previous measurement left one
+question open: the inline carrier came back patched (`heartbeat ""`) while the *live* player response
+still carried 7 `adPlacements` and `playerAds`. Two readings fit that pair, and they need opposite
+fixes:
+
+1. the fetch/XHR patch never saw the request (clean-realm bypass: the page keeps a pristine `fetch`
+   from an iframe `contentWindow`), or
+2. the patch saw it and the reconstruction did not reach the player.
+
+Counting is the only way to tell them apart from the console, so `innertube.ts` now records per
+transport, behind the same `blockadsdebug` token:
+
+- `seen` — requests that went through the patched `window.fetch` / `XMLHttpRequest.send`, counted at
+  send time so one request is counted exactly once.
+- `matched` — of those, the ones on a pruned endpoint, with the last `MAX_MATCHED_PATHS` (8) route
+  paths, query stripped.
+- `neutralized` — of those, the ones whose payload was actually rebuilt (`pruned !== response`, and
+  for XHR only when a shadow was really applied, so a binary `responseType` cannot inflate it).
+
+Bypass signature: `seen > 0` and `matched === 0` while page resource timing shows real
+`/youtubei/v1/player` calls. Dead patch: `seen === 0`. Extension tests 69 -> 77,
+`pnpm check:ci` exit 0 (145 core, 8 rules).
+
+Artifact check, running the built `dist/innertube.js` in a Node `vm` with a fake `window`, `fetch`,
+`Response` and `XMLHttpRequest`: four patched calls (player, next, browse, one XHR) plus one call on
+the **pre-patch `fetch` reference** to simulate the bypass. Result
+`{ seen: 4, matched: 3, neutralized: 3, matchedPaths: [player, next, player] }` — the bypassed call is
+invisible to the counter, which is exactly the signal we are looking for in Chrome. Carrier still ends
+`adPlacements: []`, `adBreakHeartbeatParams: ""`, `videoDetails` intact, descriptor
+`data` + `configurable: false`.
+
+Still open: task 7. The measurement in real Chrome decides between the two readings above.

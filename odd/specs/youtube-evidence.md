@@ -597,3 +597,71 @@ deja el array vacío dentro del action).
 La medición anterior decía `placements: "PRESENTES"` porque la sonda distinguía `undefined` vs presente y
 perdía el `.length`: un `[]` vacío y un array con anuncios se veían igual. Las sondas tienen que imprimir
 **el valor**, no una etiqueta de presencia. Igual que `muro_visible` por `.ytp-mdx-popup-dialog` (§14).
+
+## 16. Telemetría de red opt-in: separar "parche muerto" de "bypass de realm" (2026-10-09)
+
+La medición de §15 dejó una contradicción sin resolver: el carrier inline salía neutralizado
+(`heartbeat: ""`) pero la respuesta viva del player seguía con 7 `adPlacements` y
+`playerAds: playerLegacyDesktopWatchAdsRenderer`. Con esos dos datos solos caben dos lecturas opuestas,
+y cada una pide un fix distinto:
+
+1. **Bypass de realm**: la página agarra un `fetch` limpio (típicamente de
+   `document.createElement('iframe').contentWindow.fetch`) y la petición nunca pasa por nuestro
+   `window.fetch` parcheado.
+2. **Parche que ve la petición pero no la entrega**: la reconstrucción llega tarde o el player lee otra
+   copia.
+
+Ninguna sonda de DOM distingue 1 de 2. Lo hace un contador dentro del propio transport, así que
+`innertube.ts` publica `window.__blockAdsNetwork` bajo el mismo token `?blockadsdebug` (sin token, no
+existe ese global: sigue sin haber huella legible por la página):
+
+| campo | qué prueba |
+|---|---|
+| `seen` | peticiones que **efectivamente** pasaron por `window.fetch`/`XHR.send` parcheados |
+| `matched` | de esas, las que cayeron en endpoint de poda (`/player`, `/next`) |
+| `neutralized` | de esas, las que se reconstruyeron de verdad |
+| `matchedPaths` | últimas 8 rutas (sin query) que vimos pasar |
+
+Lectura: `seen > 0` y `matched === 0` mientras el timing de la página sí muestra llamadas a
+`/youtubei/v1/player` ⇒ **bypass** (hipótesis 1). `seen === 0` ⇒ el scriptlet no corre en el realm que
+usa la página. `matched > 0` y `neutralized < matched` ⇒ hipótesis 2.
+
+Decisiones de diseño que importan para no vuelvan loco al siguiente:
+
+- Se cuenta en el **envío**, no en la lectura: `readystatechange` puede dispararse más de una vez y un
+  contador duplicado invalidaría la comparación contra `performance`.
+- XHR solo suma `neutralized` si realmente aplicó algún sombraje; con `responseType` binario no hay
+  forma de sombrear y no infla el número.
+- En fetch la señal es `respuesta reconstruida !== respuesta original`, que es la referencia que
+  devuelve `pruneResponse` cuando no cambia nada.
+
+Verificación del artefacto (no del test): ejecuté `dist/innertube.js` en un `vm` de Node con `window`,
+`fetch`, `Response` y `XMLHttpRequest` falsos, haciendo 4 llamadas por el transport parcheado **más una
+por la referencia limpia de `fetch` capturada antes del parche**, simulando el bypass:
+
+```text
+{ seen: 4, matched: 3, neutralized: 3, matchedPaths: ["/youtubei/v1/player", "/youtubei/v1/next", "/youtubei/v1/player"] }
+```
+
+La petición del realm limpio es invisible para el contador: ese es exactamente el patrón que hay que
+buscar en Chrome real.
+
+### Plantilla de medición en Chrome real (pestana nueva con `?blockadsdebug`)
+
+Contexto **page** en DevTools (no el isolated de la extension):
+
+```js
+const net = window.__blockAdsNetwork;
+const seen = performance.getEntriesByType("resource")
+  .map((e) => new URL(e.name).pathname)
+  .filter((p) => p === "/youtubei/v1/player" || p === "/youtubei/v1/next");
+const ad = (o) => JSON.stringify((o?.adPlacements ?? []).length) + "/" + JSON.stringify((o?.playerAds ?? []).length);
+console.log(JSON.stringify({
+  telemetry: net,
+  pageCalledEndpoints: seen,
+  live: ad(window.ytInitialPlayerResponse),
+}, null, 2));
+```
+
+Si `pageCalledEndpoints` tiene entradas y `telemetry.matched` es `0`, el bypass está confirmado y hay
+que cambiar de vector (el parche de `window.fetch` no alcanza).

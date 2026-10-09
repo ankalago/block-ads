@@ -132,14 +132,20 @@ const requestInputUrl = (input: RequestInput): string => {
 
 const requestUrl = (url: string | URL): string => (typeof url === "string" ? url : url.href);
 
-export const installFetchPatch = (): void => {
+export const installFetchPatch = (network: NetworkStatus): void => {
   const originalFetch = window.fetch;
 
   window.fetch = async (input: RequestInput, init?: RequestInit): Promise<Response> => {
     const url = requestInputUrl(input);
-    const response = await originalFetch(input, init);
+    recordTransport(network, url);
 
-    return isPrunedEndpoint(url) ? pruneResponse(response, url) : response;
+    const response = await originalFetch(input, init);
+    if (!isPrunedEndpoint(url)) return response;
+
+    const pruned = await pruneResponse(response, url);
+    if (pruned !== response) markNeutralized(network);
+
+    return pruned;
   };
 };
 
@@ -166,8 +172,7 @@ const defineShadow = (target: XMLHttpRequest, property: string, value: string | 
  * Decide qué propiedades hay que sombrear en un XHR terminado. Pura y sin DOM a propósito:
  * el error clásico aquí es sombrear `responseText` y dejar `response` intacto, que es lo que
  * la página lee cuando `responseType === "json"`, y el parche no bloquearía nada.
- */
-export type XhrShadow = { readonly property: "response" | "responseText"; readonly value: string | JsonValue };
+ */ export type XhrShadow = { readonly property: "response" | "responseText"; readonly value: string | JsonValue };
 
 export const xhrShadows = (responseType: string, pruned: JsonValue): readonly XhrShadow[] => {
   const body = JSON.stringify(pruned);
@@ -187,7 +192,7 @@ export const xhrShadows = (responseType: string, pruned: JsonValue): readonly Xh
  * respuestas de player/next ya terminadas (`readyState === DONE`). Con `responseType` binario
  * (`arraybuffer`/`blob`) no hay forma de sombrear un string: se informa y no se neutraliza.
  */
-const overrideXhrPayload = (target: XMLHttpRequest, url: string): void => {
+const overrideXhrPayload = (target: XMLHttpRequest, url: string, network: NetworkStatus): void => {
   if (target.readyState !== XMLHttpRequest.DONE) return;
 
   const payload = xhrPayload(target);
@@ -196,12 +201,21 @@ const overrideXhrPayload = (target: XMLHttpRequest, url: string): void => {
   const pruned = pruneResponsePayload(url, payload);
   if (pruned === payload) return;
 
-  xhrShadows(target.responseType, pruned).forEach((shadow) => {
+  const shadows = xhrShadows(target.responseType, pruned);
+  if (shadows.length === 0) return;
+
+  shadows.forEach((shadow) => {
     defineShadow(target, shadow.property, shadow.value);
   });
+  markNeutralized(network);
 };
 
-const prunedXhrMethods = (originalOpen: XhrOpen, originalSend: XhrSend, urls: WeakMap<XMLHttpRequest, string>) => ({
+const prunedXhrMethods = (
+  originalOpen: XhrOpen,
+  originalSend: XhrSend,
+  urls: WeakMap<XMLHttpRequest, string>,
+  network: NetworkStatus,
+) => ({
   // Métodos (no funciones flecha) porque necesitan el `this` de la instancia que envuelven.
   open(
     this: XMLHttpRequest,
@@ -218,17 +232,23 @@ const prunedXhrMethods = (originalOpen: XhrOpen, originalSend: XhrSend, urls: We
   send(this: XMLHttpRequest, body?: Document | XMLHttpRequestBodyInit | null): void {
     const url = urls.get(this);
 
-    if (url !== undefined && isPrunedEndpoint(url)) {
-      this.addEventListener("readystatechange", () => overrideXhrPayload(this, url));
+    if (url !== undefined) {
+      // Se cuenta en el envío, no en la lectura: un `readystatechange` puede dispararse más de una
+      // vez y un contador duplicado invalidaría la comparación contra el timing real de la página.
+      recordTransport(network, url);
+
+      if (isPrunedEndpoint(url)) {
+        this.addEventListener("readystatechange", () => overrideXhrPayload(this, url, network));
+      }
     }
 
     originalSend.call(this, body);
   },
 });
 
-export const installXhrPatch = (): void => {
+export const installXhrPatch = (network: NetworkStatus): void => {
   const urls = new WeakMap<XMLHttpRequest, string>();
-  const methods = prunedXhrMethods(XMLHttpRequest.prototype.open, XMLHttpRequest.prototype.send, urls);
+  const methods = prunedXhrMethods(XMLHttpRequest.prototype.open, XMLHttpRequest.prototype.send, urls, network);
 
   XMLHttpRequest.prototype.open = methods.open;
   XMLHttpRequest.prototype.send = methods.send;
@@ -256,12 +276,44 @@ export type CarrierHost = { ytInitialPlayerResponse?: JsonValue };
  */
 export const DEBUG_PARAM = "blockadsdebug";
 
+/**
+ * Contadores del transport parcheado. Sirven para una sola pregunta que el HTML no responde:
+ * ¿la petición de `player` pasó por este realm? Con `seen > 0` y `matched === 0` mientras el
+ * timing de la página sí muestra llamadas a `/youtubei/v1/player`, el parche está vivo pero la
+ * página usa otro realm (fetch limpio de un iframe): un bypass, no un fallo del código.
+ */
+export type NetworkStatus = { seen: number; matched: number; neutralized: number; matchedPaths: string[] };
+
+/** Techo de rutas guardadas: suficiente para leer la serie, acotado para no crecer sin límite. */
+export const MAX_MATCHED_PATHS = 8;
+
+export const NETWORK_STATUS_KEY = "__blockAdsNetwork";
+
+export const networkStatusSeed = (): NetworkStatus => ({ seen: 0, matched: 0, neutralized: 0, matchedPaths: [] });
+
+/** Registra una petición que efectivamente pasó por el transport parcheado, al momento de enviarla. */
+export const recordTransport = (network: NetworkStatus, url: string): void => {
+  network.seen += 1;
+
+  const endpoint = endpointOf(url);
+  if (!isPrunedEndpoint(endpoint)) return;
+
+  network.matched += 1;
+  network.matchedPaths = [endpoint, ...network.matchedPaths].slice(0, MAX_MATCHED_PATHS);
+};
+
+/** Suma una respuesta realmente reconstruida; `matched` sin `neutralized` es forma, no éxito. */
+export const markNeutralized = (network: NetworkStatus): void => {
+  network.neutralized += 1;
+};
+
 export const shouldPublishStatus = (search: string): boolean => search.includes(DEBUG_PARAM);
 
 declare global {
   interface Window {
     ytInitialPlayerResponse?: JsonValue;
     __blockAdsInnerTube?: CarrierStatus;
+    __blockAdsNetwork?: NetworkStatus;
   }
 }
 
@@ -333,11 +385,16 @@ const healOrReport = (host: CarrierHost, value: JsonValue | undefined, status: C
 export const installInnerTubePatch = (): CarrierStatus => {
   if (typeof window === "undefined") return carrierStatusSeed();
 
-  installFetchPatch();
-  installXhrPatch();
+  const network = networkStatusSeed();
+  const publish = shouldPublishStatus(window.location.search);
+
+  installFetchPatch(network);
+  installXhrPatch(network);
+
+  if (publish) window[NETWORK_STATUS_KEY] = network;
 
   const status = carrierStatusSeed();
-  if (shouldPublishStatus(window.location.search)) window.__blockAdsInnerTube = status;
+  if (publish) window.__blockAdsInnerTube = status;
   shadowInlineCarrier(window, NEUTRALIZED_KEYS, status);
 
   return status;
