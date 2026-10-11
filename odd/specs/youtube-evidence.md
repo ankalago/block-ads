@@ -774,6 +774,23 @@ Tres detalles que importan para no leer mal la próxima vez:
 servidor niega la reproducción de entrada. El muro es **stateful y por sesión**, no un interruptor
 del código.
 
-Lo que falta para cerrar: el mismo video con la extensión **desactivada** en `chrome://extensions`.
-Si también da `ERROR`, el flag es de la sesión/cuenta y no de nuestra presencia; si juega (con
-anuncio), la detección es por request y hay que buscar qué señal nuestra la dispara.
+**Control ejecutado (misma build, mismo `dQw4w9WgXcQ`, extensión desactivada, sin token):**
+
+```json
+CONTROL-SIN-EXTENSION { "status": "OK", "enforcement": false }
+```
+
+Sin la extensión el servidor responde `OK`. Con ella responde `ERROR` con el enforcement pegado.
+Caen dos hipótesis a la vez:
+
+- **No es estado pegajoso de la sesión.** Un flag de cuenta o de `visitorData` persistiría con la
+  extensión apagada. No persiste. La decisión se toma **por request**, sobre algo que mandamos
+  nosotros.
+- **No es "YouTube sirve el anuncio y después lo mata".** La respuesta que neutralizamos traía
+  `playerAds`, `adPlacements`, `adSlots` **y** `playabilityStatus.ERROR` juntos: el servidor programó
+  los anuncios y negó la reproducción en el mismo payload. El bloqueo se decide antes de servir.
+
+Queda una sola pregunta con dos respuestas posibles y baratas de medir: cuál de nuestras dos capas
+(GDN de red o scriptlet InnerTube) produce la señal que el servidor lee. La segunda bisagra es si
+`streamingData` trae el stream adentro de la respuesta con `ERROR`: si lo trae, neutralizar el campo
+de enforcement es una salida real; si no, sería mentirle al player y daría pantalla negra.
