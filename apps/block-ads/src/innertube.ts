@@ -1,3 +1,4 @@
+import { hasEnforcementWall, neutralizeEnforcement } from "./enforcement.ts";
 import { NEUTRALIZED_KEYS, PRUNE_ENDPOINTS, PRUNE_RULES } from "./innertube.config.ts";
 
 /** JSON de una respuesta de InnerTube: el árbol que recorre la neutralización. */
@@ -192,12 +193,15 @@ const pruneResponse = async (response: Response, url: string, network: NetworkSt
   const payload = await readJson(response.clone());
   if (payload === undefined) return response;
 
-  const pruned = pruneResponsePayload(url, payload);
-  if (pruned === payload) return response;
+  const adPruned = pruneResponsePayload(url, payload);
+  const restored = neutralizeEnforcement(adPruned);
+  if (restored === undefined) return response;
+  if (restored === payload) return response;
 
   markAdsFound(network, countAdKeys(payload, neutralizationKeysFor(url)));
+  if (restored !== adPruned) markEnforcementRewritten(network);
 
-  return withPrunedBody(response, pruned);
+  return withPrunedBody(response, restored);
 };
 
 type RequestInput = RequestInfo | URL;
@@ -276,10 +280,12 @@ const overrideXhrPayload = (target: XMLHttpRequest, url: string, network: Networ
   const payload = xhrPayload(target);
   if (payload === undefined) return;
 
-  const pruned = pruneResponsePayload(url, payload);
-  if (pruned === payload) return;
+  const adPruned = pruneResponsePayload(url, payload);
+  const restored = neutralizeEnforcement(adPruned);
+  if (restored === undefined) return;
+  if (restored === payload) return;
 
-  const shadows = xhrShadows(target.responseType, pruned);
+  const shadows = xhrShadows(target.responseType, restored);
   if (shadows.length === 0) return;
 
   shadows.forEach((shadow) => {
@@ -287,6 +293,7 @@ const overrideXhrPayload = (target: XMLHttpRequest, url: string, network: Networ
   });
   markNeutralized(network);
   markAdsFound(network, countAdKeys(payload, neutralizationKeysFor(url)));
+  if (restored !== adPruned) markEnforcementRewritten(network);
 };
 
 const prunedXhrMethods = (
@@ -344,7 +351,12 @@ export const INLINE_CARRIER = "ytInitialPlayerResponse";
  * `accessorInstalled`: se ganó la carrera y se instaló la trampa de una sola escritura.
  * `carrierPruned`: el carrier terminó neutralizado, por la trampa o por sobrescritura directa.
  */
-export type CarrierStatus = { accessorInstalled: boolean; carrierPruned: boolean };
+export type CarrierStatus = {
+  accessorInstalled: boolean;
+  carrierPruned: boolean;
+  /** El server mandó el muro de enforcement en el carrier y la regla lo reescribió a OK. */
+  wallRewritten: boolean;
+};
 
 /** Única forma del portador que nos interesa; `window` la cumple, un objeto llano de test también. */
 export type CarrierHost = { ytInitialPlayerResponse?: JsonValue };
@@ -365,6 +377,8 @@ export type NetworkStatus = {
   seen: number;
   matched: number;
   neutralized: number;
+  /** Veces que el transport reescribió un muro de enforcement (regla aparte de la poda). */
+  enforcement: number;
   adsFound: Record<string, number>;
   matchedPaths: string[];
 };
@@ -378,6 +392,7 @@ export const networkStatusSeed = (): NetworkStatus => ({
   seen: 0,
   matched: 0,
   neutralized: 0,
+  enforcement: 0,
   adsFound: {},
   matchedPaths: [],
 });
@@ -398,6 +413,11 @@ export const markNeutralized = (network: NetworkStatus): void => {
   network.neutralized += 1;
 };
 
+/** Cuenta un muro de enforcement reescrito en el transport, causa distinta de la poda de anuncios. */
+export const markEnforcementRewritten = (network: NetworkStatus): void => {
+  network.enforcement += 1;
+};
+
 export const shouldPublishStatus = (search: string): boolean => search.includes(DEBUG_PARAM);
 
 declare global {
@@ -408,7 +428,11 @@ declare global {
   }
 }
 
-export const carrierStatusSeed = (): CarrierStatus => ({ accessorInstalled: false, carrierPruned: false });
+export const carrierStatusSeed = (): CarrierStatus => ({
+  accessorInstalled: false,
+  carrierPruned: false,
+  wallRewritten: false,
+});
 
 /**
  * La forma que produce un `var ytInitialPlayerResponse = {…}` a nivel global en la página: dato
@@ -440,9 +464,12 @@ const healRaw = (
   status: CarrierStatus,
   network: NetworkStatus,
 ): void => {
-  if (isJsonObject(raw)) markAdsFound(network, countAdKeys(raw, keys));
+  if (isJsonObject(raw)) {
+    markAdsFound(network, countAdKeys(raw, keys));
+    if (hasEnforcementWall(raw)) status.wallRewritten = true;
+  }
 
-  healOrReport(host, initialResponseValue(raw, keys), status);
+  healOrReport(host, neutralizeEnforcement(initialResponseValue(raw, keys)), status);
 };
 
 /**

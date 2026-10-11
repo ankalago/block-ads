@@ -794,3 +794,44 @@ Queda una sola pregunta con dos respuestas posibles y baratas de medir: cuál de
 (GDN de red o scriptlet InnerTube) produce la señal que el servidor lee. La segunda bisagra es si
 `streamingData` trae el stream adentro de la respuesta con `ERROR`: si lo trae, neutralizar el campo
 de enforcement es una salida real; si no, sería mentirle al player y daría pantalla negra.
+
+## 20. 2026-10-11 — la request fresca juega: el muro es por-request, no universal (test en vivo 2)
+
+**Setup.** Consola de Paul sobre el watch de `dQw4w9WgXcQ` con la extensión puesta (build de
+`a6cb126`). Un wrapper de `window.fetch` montado sobre el fetch ya parcheado reescribe
+`playabilityStatus` en las respuestas de `/youtubei/v1/player`, y después
+`movie_player.loadVideoById("dQw4w9WgXcQ")` obliga una request fresca.
+
+```json
+RESPUESTA-FRESCA { "antes": "OK", "conUrl": 0, "conCipher": 1, "total": 27, "serverAbr": true }
+VEREDICTO-2 { "t0": 0, "t1": 5.536277, "avanza": true, "src": "blob:https://www.youtube.com/…", "error": "ABSENT" }
+```
+
+Tres lecturas:
+
+- **El server no flagueó la request fresca.** `antes: "OK"` es el valor que llegó del servidor
+  *antes* de que el wrapper tocara algo. Con la extensión puesta, una segunda request de `player`
+  en la misma sesión responde `OK` mientras el carrier del HTML sigue `ERROR`. La decisión de
+  enforcement es por request **y no todas las requests la llevan**: el HTML de la página la trae,
+  la API de `player` después no. §19 queda: per-request, no sticky; §20 agrega: tampoco universal.
+- **El material de stream viene siempre.** La respuesta OK tiene la misma forma que la flagueada:
+  27 formats sin `url` directa, 1 `signatureCipher`, `serverAbrStreamingUrl`. Eso cierra la
+  "segunda bisagra" de §19: la ausencia de URLs no es retención del server, es la era SABR normal
+  (el stream llega por la sesión SABR, `blob:` src). **La única diferencia jugable entre una
+  respuesta flagueada y una limpia es `playabilityStatus.status` + `errorScreen`.**
+- **Con una respuesta OK la reproducción funciona con todo nuestro filtro activo**: 5.5 s de
+  playback, `src` `blob:`, sin overlay. El bloqueo de red + scriptlet no impide reproducir.
+
+**Consecuencia de código (implementada con TDD, regla aparte con nombre propio).**
+`src/enforcement.ts`: si una respuesta trae `playabilityStatus.status === "ERROR"` **y**
+`errorScreen.enforcementMessageViewModel`, se reescribe el estado a `"OK"` y se saca `errorScreen`;
+cualquier otro error (video caído, restricción, otro renderer) se conserva intacto. La regla corre
+en los dos caminos donde entra una respuesta de player: la trampa del carrier inline (nuevo flag
+`wallRewritten` en el estado de carrier) y el transport `fetch`/XHR (nuevo contador `enforcement`
+en la telemetría de red). Verificación del artefacto real en `vm`: muro→OK con orgánico intacto en
+carrier y fetch; respuesta limpia sin reconstrucción; `playerErrorMessageRenderer` sin reescritura.
+
+**Riesgos que quedan anotados, sin medir hoy:** SABR significa que el server puede pasar a insertar
+anuncios dentro del stream (server-side stitching), que este filtro no ve; y el enforcement puede
+escalar por acumulación de señales (la cuenta de "3 strikes" del ecosistema). La regla actual
+reescribe el muro cuando aparece; no evita que el server lo mande.

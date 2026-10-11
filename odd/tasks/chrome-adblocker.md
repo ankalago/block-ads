@@ -42,7 +42,27 @@ scriptlet engine beyond what YouTube needs, UI options beyond enable/disable.
 - **DNR limits**: 30,000 static rules guaranteed, 1,000 regex rules, RE2 engine only (no
   backreferences, no lookahead). The compiler must validate against these.
 
-## Task 5 close-out (d02e526)
+## Task 7 progress: enforcement rule (2026-10-11)
+
+The live console tests (see `odd/specs/youtube-evidence.md` §20) settled the two open questions:
+
+- **Test 2 (fresh `/youtubei/v1/player` request via `loadVideoById`)**: the server returned
+  `playabilityStatus.status: "OK"` *before* the test wrapper touched it, and the video played
+  5.5 s (`avanza: true`, `blob:` src) with the extension fully active. The enforcement decision is
+  per-request and the fresh API request was not flagged; only the HTML carrier carried the wall.
+- **SABR correction**: the OK response has the same URL-less format shape as the flagged one
+  (27 formats, 1 `signatureCipher`, `serverAbrStreamingUrl`). Missing `url` fields are the normal
+  SABR era, not server withholding. The only playable difference is `playabilityStatus` itself.
+
+Implemented test-first: `src/enforcement.ts` rewrites `ERROR` → `OK` and drops `errorScreen` only
+when `enforcementMessageViewModel` is present (genuinely broken videos keep their message), wired
+into the inline-carrier trap (`wallRewritten` flag) and the fetch/XHR transport (`enforcement`
+counter). Extension tests 90 → 102; four scenarios verified against the real `dist` bundle in
+Node `vm` (wall→OK on carrier and fetch, clean untouched, foreign error screens untouched).
+
+Closing criterion still pending Paul's cold start: ad-bearing video reproduces with no wall and
+`adsFound > 0` in telemetry.
+
 
 The `gentle-ai-worker` run died with "assistant returned no final report" after writing ~950
 lines. Nothing it produced counted as verified; the parent ran every check itself. Two defects

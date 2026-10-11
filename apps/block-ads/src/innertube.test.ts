@@ -10,6 +10,7 @@ import {
   initialResponseValue,
   isPrunedEndpoint,
   markAdsFound,
+  markEnforcementRewritten,
   markNeutralized,
   NETWORK_STATUS_KEY,
   networkStatusSeed,
@@ -302,6 +303,42 @@ describe("neutralización del carrier inline de la primera respuesta", () => {
   });
 });
 
+describe("el muro de enforcement en el carrier inline", () => {
+  const wallCarrier = () => ({
+    videoDetails: { videoId: "dQw4w9WgXcQ" },
+    playabilityStatus: {
+      status: "ERROR",
+      errorScreen: {
+        enforcementMessageViewModel: { title: { content: "Ad blockers violate YouTube's Terms of Service" } },
+      },
+    },
+  });
+
+  it("reescriben el muro del carrier en la trampa y lo marcan en el estado", () => {
+    const host: CarrierHost = {};
+    const status = carrierStatusSeed();
+    const network = networkStatusSeed();
+
+    shadowInlineCarrier(host, NEUTRALIZED_KEYS, status, network);
+    host.ytInitialPlayerResponse = wallCarrier();
+
+    const playability = view(key(host.ytInitialPlayerResponse, "playabilityStatus"));
+    expect(status.wallRewritten).toBe(true);
+    expect(playability.status).toBe("OK");
+    expect("errorScreen" in playability).toBe(false);
+  });
+
+  it("no marcan el muro en un carrier limpio", () => {
+    const host: CarrierHost = {};
+    const status = carrierStatusSeed();
+
+    shadowInlineCarrier(host, NEUTRALIZED_KEYS, status);
+    host.ytInitialPlayerResponse = { videoDetails: { videoId: "dQw4w9WgXcQ" } };
+
+    expect(status.wallRewritten).toBe(false);
+  });
+});
+
 describe("el carrier inline vuelve a ser data property después de neutralizarlo", () => {
   const carrier = () => ({
     videoDetails: { videoId: "dQw4w9WgXcQ" },
@@ -355,10 +392,10 @@ describe("el carrier inline vuelve a ser data property después de neutralizarlo
     const status = carrierStatusSeed();
 
     expect(shadowInlineCarrier(host, NEUTRALIZED_KEYS, status)).toBe(true);
-    expect(status).toEqual({ accessorInstalled: true, carrierPruned: false });
+    expect(status).toEqual({ accessorInstalled: true, carrierPruned: false, wallRewritten: false });
 
     host.ytInitialPlayerResponse = carrier();
-    expect(status).toEqual({ accessorInstalled: true, carrierPruned: true });
+    expect(status).toEqual({ accessorInstalled: true, carrierPruned: true, wallRewritten: false });
   });
 
   it("restauran en el acto cuando el carrier ya venía asignado al instalarse", () => {
@@ -428,7 +465,7 @@ describe("el carrier inline vuelve a ser data property después de neutralizarlo
   });
 
   it("seed de estado arranca sin trampa ni poda", () => {
-    expect(carrierStatusSeed()).toEqual({ accessorInstalled: false, carrierPruned: false });
+    expect(carrierStatusSeed()).toEqual({ accessorInstalled: false, carrierPruned: false, wallRewritten: false });
   });
 });
 
@@ -475,7 +512,14 @@ describe("telemetría de estado opt-in por token de URL", () => {
 
 describe("telemetría de red para distinguir un parche muerto de un bypass", () => {
   it("seed de red arranca en cero y sin rutas", () => {
-    expect(networkStatusSeed()).toEqual({ seen: 0, matched: 0, neutralized: 0, adsFound: {}, matchedPaths: [] });
+    expect(networkStatusSeed()).toEqual({
+      seen: 0,
+      matched: 0,
+      neutralized: 0,
+      enforcement: 0,
+      adsFound: {},
+      matchedPaths: [],
+    });
   });
 
   it("cuentan cada petición que pasa por el transport, aunque no sea de poda", () => {
@@ -483,7 +527,14 @@ describe("telemetría de red para distinguir un parche muerto de un bypass", () 
 
     recordTransport(status, "https://www.youtube.com/youtubei/v1/browse");
 
-    expect(status).toEqual({ seen: 1, matched: 0, neutralized: 0, adsFound: {}, matchedPaths: [] });
+    expect(status).toEqual({
+      seen: 1,
+      matched: 0,
+      neutralized: 0,
+      enforcement: 0,
+      adsFound: {},
+      matchedPaths: [],
+    });
   });
 
   it("cuenten matched y guardan la ruta sin query cuando la petición es de poda", () => {
@@ -525,6 +576,14 @@ describe("telemetría de red para distinguir un parche muerto de un bypass", () 
     expect(status.neutralized).toBe(1);
   });
 
+  it("suman enforcement solo cuando se reescribió el muro", () => {
+    const status = networkStatusSeed();
+
+    expect(status.enforcement).toBe(0);
+    markEnforcementRewritten(status);
+    expect(status.enforcement).toBe(1);
+  });
+
   it("leen la URL relativa igual que el filtro de endpoint", () => {
     const status = networkStatusSeed();
 
@@ -534,6 +593,7 @@ describe("telemetría de red para distinguir un parche muerto de un bypass", () 
       seen: 1,
       matched: 1,
       neutralized: 0,
+      enforcement: 0,
       adsFound: {},
       matchedPaths: ["/youtubei/v1/player"],
     });
