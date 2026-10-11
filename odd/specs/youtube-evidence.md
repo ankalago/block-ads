@@ -705,7 +705,7 @@ Lectura con `adsFound`:
 |---|---|---|---|
 | `adPlacements > 0` | false | OK | **había anuncio y lo neutralizamos**: tarea 7 cerrada |
 | `{}` | false | OK | ese video no traía ad break; probar con otro |
-| `adPlacements > 0` | true | ERROR | neutralizar no alcanza: hay que ver qué forma exacta exige el player |
+| `adPlacements > 0` | true | ERROR | ver §19: el ERROR puede venir del servidor, no de nosotros |
 
 ## 18. Protocolo de medición en frío (para que la respuesta sea sí/no)
 
@@ -718,8 +718,62 @@ medición no prueba nada. Secuencia que sí decide:
 4. Volver a correr la sonda a los 90 s: un midroll vive ahí, no en el arranque.
 
 La sonda tiene que imprimir los cuatro campos juntos: `telemetria` (con `adsFound`),
-`estado` (`__blockAdsInnerTube`: `accessorInstalled`/`carrierPruned`), `muro` por texto visible y
-`video` (`currentSrc`, `paused`, `readyState`). Con `accessorInstalled: false` y `carrierPruned: true`
-perdimos la carrera pero sobrescribimos el carrier: sigue siendo neutralización válida, solo cambia
-por qué.
+`estado` (`__blockAdsInnerTube`: `accessorInstalled`/`carrierPruned`), el `playabilityStatus`
+**completo** (no `String(status)`: hay que ver `errorScreen`) y `video` (`currentSrc`, `paused`,
+`readyState`). Con `accessorInstalled: false` y `carrierPruned: true` perdimos la carrera pero
+sobrescribimos el carrier: sigue siendo neutralización válida, solo cambia por qué.
 
+
+## 19. 2026-10-11 — **el muro es server-side**: `playabilityStatus` trae la orden en el HTML
+
+Medición en frío sobre `dQw4w9WgXcQ`, build de `a6cb126`, protocolo de §18. La sonda ahora lee el
+`playabilityStatus` **completo** en vez de un `String(status)`, porque el `String()` ocultaba el
+`errorScreen` — y ahí estaba todo.
+
+```json
+{
+  "videoId": "dQw4w9WgXcQ",
+  "playabilityStatus.status": "ERROR",
+  "errorScreen": { "enforcementMessageViewModel": {
+      "title": "Ad blockers violate YouTube's Terms of Service",
+      "primaryButton": "Allow YouTube Ads",
+      "feedbackMessage": "Not using an ad blocker? Report issue",
+      "displayType": "ENFORCEMENT_MESSAGE_VIEW_MODEL_DISPLAY_TYPE_PLAYER",
+      "isVisible": true } },
+  "errorEnElReproductor": "ABSENT",
+  "anunciosEnDOM": 0,
+  "adsFound": { "playerAds": 1, "adPlacements": 1, "adSlots": 2, "adBreakHeartbeatParams": 1 },
+  "red": "seen 26 / matched 1 / neutralized 1",
+  "estado": { "accessorInstalled": true, "carrierPruned": true }
+}
+```
+
+Dos conclusiones, y van en direcciones opuestas.
+
+**Eficacia: confirmada.** `adsFound` no es `{}`: había `adPlacements`, `playerAds`, `adSlots` y
+`adBreakHeartbeatParams` **con contenido** en una respuesta del player, y `neutralized: 1` dice que
+la reescribimos. Con el fix de `a6cb126` (no reconstruir cuando no hay trabajo), ese
+contador ya no puede ser falso: `adsFound` y `neutralized` ahora cuentan cosas distintas y reales. Un anuncio real se neutralizó.
+
+**El muro no lo causamos nosotros.** El `ERROR` está en `ytInitialPlayerResponse`, el objeto que
+YouTube serializa **dentro del HTML que baja del servidor**, antes de que cualquier línea nuestra
+corra. `playabilityStatus` no es una de nuestras claves: no lo tocamos. La orden de bloqueo viene
+de Google, con su texto, su botón "Allow YouTube Ads" y su `feedbackToken` de `/youtubei/v1/feedback`.
+
+Tres detalles que importan para no leer mal la próxima vez:
+
+- `anunciosEnDOM: 0` y `errorEnElReproductor: "ABSENT"`: el overlay de enforcement todavía no está
+  en el DOM cuando se toma la muestra. **El DOM no es la señal**; la señal es `playabilityStatus`.
+  Detectar el muro por texto visible da `false` en frío y miente.
+- `isVisible: true` viene del servidor, no del render. No prueba que Paul haya visto el cartel.
+- Conviven en la misma respuesta `adPlacements` **y** `ERROR`: YouTube arma los slots igual y después
+  niega la reproducción. O sea que "hay ads en la respuesta" no implica "el video se reproduce".
+
+§17 decía "el muro se levantó". **Era demasiado optimista**: con esta build hay videos que juegan
+(`3g4S04DJPYQ`, `kZMiB05GEWg`: `readyState: 4`, `blob:` src) y hay otros (`dQw4w9WgXcQ`) donde el
+servidor niega la reproducción de entrada. El muro es **stateful y por sesión**, no un interruptor
+del código.
+
+Lo que falta para cerrar: el mismo video con la extensión **desactivada** en `chrome://extensions`.
+Si también da `ERROR`, el flag es de la sesión/cuenta y no de nuestra presencia; si juega (con
+anuncio), la detección es por request y hay que buscar qué señal nuestra la dispara.
