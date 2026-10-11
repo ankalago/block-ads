@@ -25,8 +25,19 @@ const emptyValueOf = (value: JsonValue): JsonValue | undefined => {
 
 type ObjectEntry = { readonly key: string; readonly value: JsonValue };
 
+/**
+ * Si la clave ya trae el vacío de su tipo, no hay trabajo: devolver el valor original preserva la
+ * referencia. Sin esto, `emptyValueOf([])` fabricaba un `[]` nuevo y la respuesta entera se
+ * reconstruía y se re-serializaba aunque YouTube no hubiera programado ningún anuncio.
+ */
+const isAlreadyEmpty = (value: JsonValue): boolean =>
+  value === "" ||
+  (isJsonArray(value) && value.length === 0) ||
+  (isJsonObject(value) && Object.keys(value).length === 0);
+
 const neutralizeEntry = (key: string, value: JsonValue, keys: readonly string[]): readonly ObjectEntry[] => {
   if (!isNeutralizedKey(key, keys)) return [{ key, value: neutralizeValue(value, keys) }];
+  if (isAlreadyEmpty(value)) return [{ key, value }];
 
   const empty = emptyValueOf(value);
 
@@ -43,11 +54,22 @@ const neutralizeObject = (source: JsonObject, keys: readonly string[]): JsonObje
 };
 
 /**
+ * Recorre un array conservando la referencia original si ningún elemento cambió. Sin esto, `map`
+ * devuelve siempre un array nuevo, `neutralizeObject` lee ese cambio de identidad como "hay que
+ * reconstruir" y **toda** respuesta del player se re-serializaba aunque no hubiera un solo anuncio.
+ */
+const neutralizeArray = (value: readonly JsonValue[], keys: readonly string[]): readonly JsonValue[] => {
+  const mapped = value.map((item) => neutralizeValue(item, keys));
+
+  return mapped.every((item, index) => item === value[index]) ? value : mapped;
+};
+
+/**
  * Neutralización conservadora y recursiva: cada clave de la config permanece presente con el
  * valor vacío de su propio tipo runtime. Devuelve la misma referencia si no cambia nada.
  */
 const neutralizeValue = (value: JsonValue, keys: readonly string[]): JsonValue => {
-  if (isJsonArray(value)) return value.map((item) => neutralizeValue(item, keys));
+  if (isJsonArray(value)) return neutralizeArray(value, keys);
   if (isJsonObject(value)) return neutralizeObject(value, keys);
   return value;
 };
@@ -407,6 +429,23 @@ export const initialResponseValue = (raw: JsonValue | undefined, keys: readonly 
   isJsonObject(raw) ? neutralizeAdKeys(raw, keys) : raw;
 
 /**
+ * Neutraliza el valor crudo del carrier y cuenta cuántos anuncios había antes de vaciarlo. Contar
+ * acá es el punto: el pre-roll de la primera carga no viene de `fetch` sino de este carrier inline,
+ * y sin este conteo `adsFound` se quedaría en `{}` aunque acabáramos de matar un anuncio.
+ */
+const healRaw = (
+  host: CarrierHost,
+  raw: JsonValue | undefined,
+  keys: readonly string[],
+  status: CarrierStatus,
+  network: NetworkStatus,
+): void => {
+  if (isJsonObject(raw)) markAdsFound(network, countAdKeys(raw, keys));
+
+  healOrReport(host, initialResponseValue(raw, keys), status);
+};
+
+/**
  * Usa el accesorio como **trampa de una sola escritura**: intercepta la asignación del `<script>`
  * inline, neutraliza, y devuelve la propiedad a su forma de data property. Un accesorio permanente
  * se detecta con `Object.getOwnPropertyDescriptor(window, 'ytInitialPlayerResponse')`; este no queda.
@@ -415,11 +454,16 @@ export const initialResponseValue = (raw: JsonValue | undefined, keys: readonly 
  * sin tocar el descriptor. Si además fuera no-writable no hay forma de neutralizar sin romper la
  * página y se informa sin instalar nada. El retorno dice si se instaló la trampa, no si se neutralizó.
  */
-export const shadowInlineCarrier = (host: CarrierHost, keys: readonly string[], status: CarrierStatus): boolean => {
+export const shadowInlineCarrier = (
+  host: CarrierHost,
+  keys: readonly string[],
+  status: CarrierStatus,
+  network: NetworkStatus = networkStatusSeed(),
+): boolean => {
   const existing = host.ytInitialPlayerResponse;
 
   if (existing !== undefined) {
-    healOrReport(host, initialResponseValue(existing, keys), status);
+    healRaw(host, existing, keys, status, network);
 
     return false;
   }
@@ -429,7 +473,7 @@ export const shadowInlineCarrier = (host: CarrierHost, keys: readonly string[], 
       configurable: true,
       enumerable: true,
       get: () => undefined,
-      set: (raw: JsonValue | undefined) => healCarrier(host, initialResponseValue(raw, keys), status),
+      set: (raw: JsonValue | undefined) => healRaw(host, raw, keys, status, network),
     });
     status.accessorInstalled = true;
 
@@ -464,7 +508,7 @@ export const installInnerTubePatch = (): CarrierStatus => {
 
   const status = carrierStatusSeed();
   if (publish) window.__blockAdsInnerTube = status;
-  shadowInlineCarrier(window, NEUTRALIZED_KEYS, status);
+  shadowInlineCarrier(window, NEUTRALIZED_KEYS, status, network);
 
   return status;
 };

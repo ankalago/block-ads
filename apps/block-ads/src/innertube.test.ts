@@ -131,6 +131,33 @@ describe("neutralización de respuestas de InnerTube", () => {
     expect(key(result.videoDetails, "title")).toBe("Fixture");
   });
 
+  it("devuelven la misma referencia cuando las claves de anuncio ya vienen vacías", () => {
+    const payload = {
+      adPlacements: [],
+      playerAds: {},
+      adBreakHeartbeatParams: "",
+      streamingData: { formats: [{ itag: 137 }, { itag: 251 }] },
+    };
+
+    expect(neutralizeAdKeys(payload, NEUTRALIZED_KEYS)).toBe(payload);
+    expect(pruneResponsePayload(PLAYER_URL, payload)).toBe(payload);
+  });
+
+  it("devuelven la misma referencia cuando solo hay arrays orgánicos", () => {
+    const payload = {
+      videoDetails: { videoId: "x" },
+      captions: { playerCaptionsTracklistRenderer: { captionTracks: [{ baseUrl: "u" }] } },
+    };
+
+    expect(neutralizeAdKeys(payload, NEUTRALIZED_KEYS)).toBe(payload);
+  });
+
+  it("reconstruyen solo cuando hay un escalarn de anuncio que eliminar", () => {
+    const payload = { videoDetails: { videoId: "x" }, playerAds: 42 };
+
+    expect(neutralizeAdKeys(payload, NEUTRALIZED_KEYS)).not.toBe(payload);
+  });
+
   it("devuelve el mismo objeto cuando la respuesta no trae claves de anuncio", () => {
     const clean = { playabilityStatus: { status: "OK" }, videoDetails: { videoId: "dQw4w9WgXcQ" } };
 
@@ -354,6 +381,35 @@ describe("el carrier inline vuelve a ser data property después de neutralizarlo
 
     expect(host.ytInitialPlayerResponse).toBe("ok");
     expect(carrierDescriptor(host)).toEqual(varShape);
+  });
+
+  it("cuentan los anuncios del carrier inline, que es de donde sale el pre-roll", () => {
+    const host: CarrierHost = {};
+    const network = networkStatusSeed();
+
+    shadowInlineCarrier(host, NEUTRALIZED_KEYS, carrierStatusSeed(), network);
+    host.ytInitialPlayerResponse = { adPlacements: [{ kind: "preroll" }, { kind: "midroll" }] };
+
+    expect(network.adsFound).toEqual({ adPlacements: 2 });
+  });
+
+  it("no inflan adsFound cuando el carrier no traía anuncios", () => {
+    const host: CarrierHost = { ytInitialPlayerResponse: { videoDetails: { videoId: "x" }, adPlacements: [] } };
+    const network = networkStatusSeed();
+
+    shadowInlineCarrier(host, NEUTRALIZED_KEYS, carrierStatusSeed(), network);
+
+    expect(network.adsFound).toEqual({});
+    expect(host.ytInitialPlayerResponse).toEqual({ videoDetails: { videoId: "x" }, adPlacements: [] });
+  });
+
+  it("mantienen la misma referencia del carrier cuando no hay nada que neutralizar", () => {
+    const existing = { videoDetails: { videoId: "x" }, playerAds: [], adBreakHeartbeatParams: "" };
+    const host: CarrierHost = { ytInitialPlayerResponse: existing };
+
+    shadowInlineCarrier(host, NEUTRALIZED_KEYS, carrierStatusSeed());
+
+    expect(host.ytInitialPlayerResponse).toBe(existing);
   });
 
   it("neutraliza el carrier de extremo a extremo a través de la trampa y deja una data property no configurable", () => {
