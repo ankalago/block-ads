@@ -124,6 +124,17 @@ describe("el ciclo de rescate acotado", () => {
     expect(query.mock.calls.length).toBeGreaterThan(calls);
   });
 
+  it("dejan la marca de la última inspección aunque no haya nada que rescatar", () => {
+    const status = rescueStatusSeed();
+    const attempt = vi.fn();
+    startPlayerRescue(() => cleanPlayer(), attempt, status);
+
+    vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.intervalMs);
+    expect(status.rescueTicks).toBe(1);
+    expect(status.rescueLastAt).toBe(Date.now());
+    expect(attempt).not.toHaveBeenCalled();
+  });
+
   it("rescatan al volver el foco aunque la vigía por timer esté congelada o vencida", () => {
     const status = rescueStatusSeed();
     const attempt = vi.fn();
@@ -146,6 +157,7 @@ describe("el ciclo de rescate acotado", () => {
     wall.on = true;
     nudges[0]?.();
     expect(status.playerRescues).toBe(1);
+    expect(status.rescueLastAt).toBe(Date.now());
   });
 
   it("rescatan cuando el video intenta reproducirse con el muro presente", () => {
@@ -298,6 +310,7 @@ describe("el ciclo de rescate acotado", () => {
       rescuePlayerSeen: false,
       rescueWallSeen: false,
       rescueErrors: 0,
+      rescueLastAt: -1,
     });
   });
 });

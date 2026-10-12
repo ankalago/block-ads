@@ -555,8 +555,11 @@ export const installInnerTubePatch = (): CarrierStatus => {
         document.addEventListener("visibilitychange", () => {
           if (document.visibilityState === "visible") handler();
         });
-        // `play` no burbujea; en captura el document lo recibe igual.
+        // `play` no burbujea; en captura el document lo recibe igual. Cualquier gesto del usuario
+        // (pointerdown en captura) también interroga: un tab oculto puede congelar los timers
+        // aunque el usuario esté tocando la página o la pared.
         document.addEventListener("play", handler, true);
+        document.addEventListener("pointerdown", handler, true);
       },
     );
   }

@@ -16,7 +16,7 @@ const makePlayer = (wall, videoId = "dQw4w9WgXcQ") => ({
   loadVideoById: undefined,
 });
 
-const run = (name, { wallFromStart, lateWall, wallAfter, throwingUntil, neverSeen, freezeAt, nudgeAt }) => {
+const run = (name, { wallFromStart, lateWall, wallAfter, throwingUntil, neverSeen, freezeAt, nudgeAt, nudgeType }) => {
   const pending = [];
   let t = 0;
   const rescues = [];
@@ -92,8 +92,8 @@ const run = (name, { wallFromStart, lateWall, wallAfter, throwingUntil, neverSee
       pending.length = 0; // el tab congeló los timers: no vuelve a dispararse ninguno
     }
     if (nudgeAt !== undefined && t === nudgeAt) {
-      const visibility = nudges.find((n) => n.type === "visibilitychange");
-      visibility?.handler(); // el usuario vuelve al tab: nudge fuera de la cadena de timers
+      const nudge = nudges.find((n) => n.type === (nudgeType ?? "visibilitychange"));
+      nudge?.handler(); // nudge fuera de la cadena de timers
     }
     const due = pending.filter((p) => p.at <= t);
     for (const p of due) {
@@ -121,4 +121,14 @@ run("F timers congelados a los 5 s, muro a los 10 s, foco a los 30 s", {
   wallAfter: 10000,
   freezeAt: 5000,
   nudgeAt: 30000,
+  nudgeType: "visibilitychange",
+});
+// El gesto del usuario también interroga: un tab puede estar oculto (timers congelados) mientras
+// el usuario toca la página; el pointerdown en captura rescata aunque el foco nunca vuelva.
+run("G timers congelados a los 5 s, muro a los 10 s, toque a los 30 s", {
+  wallFromStart: false,
+  wallAfter: 10000,
+  freezeAt: 5000,
+  nudgeAt: 30000,
+  nudgeType: "pointerdown",
 });

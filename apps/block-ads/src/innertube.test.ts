@@ -401,6 +401,7 @@ describe("el carrier inline vuelve a ser data property después de neutralizarlo
       rescuePlayerSeen: false,
       rescueWallSeen: false,
       rescueErrors: 0,
+      rescueLastAt: -1,
     });
 
     host.ytInitialPlayerResponse = carrier();
@@ -413,6 +414,7 @@ describe("el carrier inline vuelve a ser data property después de neutralizarlo
       rescuePlayerSeen: false,
       rescueWallSeen: false,
       rescueErrors: 0,
+      rescueLastAt: -1,
     });
   });
 
@@ -492,6 +494,7 @@ describe("el carrier inline vuelve a ser data property después de neutralizarlo
       rescuePlayerSeen: false,
       rescueWallSeen: false,
       rescueErrors: 0,
+      rescueLastAt: -1,
     });
   });
 });

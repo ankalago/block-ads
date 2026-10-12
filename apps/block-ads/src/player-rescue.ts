@@ -31,6 +31,8 @@ export type RescueStatus = {
   rescuePlayerSeen: boolean;
   rescueWallSeen: boolean;
   rescueErrors: number;
+  /** Marca de tiempo de la última inspección, por timer o nudge: -1 mientras no hubo ninguna. */
+  rescueLastAt: number;
 };
 
 export const rescueStatusSeed = (): RescueStatus => ({
@@ -39,6 +41,7 @@ export const rescueStatusSeed = (): RescueStatus => ({
   rescuePlayerSeen: false,
   rescueWallSeen: false,
   rescueErrors: 0,
+  rescueLastAt: -1,
 });
 
 declare global {
@@ -101,6 +104,7 @@ export const startPlayerRescue = (
   const state = { lastAttemptAt: -config.retryGapMs, firstSeenAt: -1 };
 
   const inspect = (): void => {
+    status.rescueLastAt = Date.now();
     const player = queryPlayer();
     if (player !== undefined) {
       status.rescuePlayerSeen = true;
