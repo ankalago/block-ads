@@ -963,3 +963,17 @@ Discriminador para la próxima corrida: el ESTADO debe traer `rescueLastAt` — 
 campo, la build está rancia** (prueba de recarga omitida); si está y quedó en ~5 s de vida de
 página, la cadena murió ahí y ningún nudge se disparó; si está fresco respecto de `Date.now()`
 al pegar, la vigía vive y la lectura dice la hora exacta de la última mirada.
+
+## §25. La telemetría deja de ser opt-in (2025-10-12)
+
+Corrida con ESTADO/RED undefined y el muro presente: el token `blockadsdebug` se pierde en
+cualquier navegación interna de YouTube, y un paste sin telemetría no distingue una query
+perdida de un content script que nunca se inyectó. Corrección (pub-siempre): la telemetría se
+publica incondicionalmente en `window.__blockAdsInnerTube` y `window.__blockAdsNetwork`; se
+eliminan `shouldPublishStatus` y `DEBUG_PARAM` con sus tests de predicado (extensión 122→118).
+El humo de vm corre sin token y falla duro si la telemetría no está.
+
+Contrato nuevo del paste: **ESTADO undefined ahora prueba falla de inyección del script**, no
+pérdida de token. Si el próximo paste trae ESTADO con `rescueLastAt` fresco, la vigía vive y el
+paste es plenamente legible; si lo trae congelado en ~5 s, la cadena murió ahí sin nudges; si
+vuelve undefined, el problema es de carga de la extensión (recarga en chrome://extensions).
