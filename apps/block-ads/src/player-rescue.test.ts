@@ -109,6 +109,21 @@ describe("el ciclo de rescate acotado", () => {
     expect(status.playerRescues).toBe(PLAYER_RESCUE_CONFIG.maxAttempts);
   });
 
+  it("siguen mirando mucho después del primer minuto de vida del player", () => {
+    const status = rescueStatusSeed();
+    const query = vi.fn(() => cleanPlayer());
+    startPlayerRescue(query, vi.fn(), status);
+
+    vi.advanceTimersByTime(31000);
+    const calls = query.mock.calls.length;
+    expect(calls).toBeGreaterThanOrEqual(20);
+
+    // La medición en vivo: el muro llegó después de los 8 s que duró la primera vigía. Mirar
+    // minutos, no segundos.
+    vi.advanceTimersByTime(5000);
+    expect(query.mock.calls.length).toBeGreaterThan(calls);
+  });
+
   it("siguen interrogando aunque la respuesta amanezca limpia: el muro puede llegar tarde", () => {
     const status = rescueStatusSeed();
     const attempt = vi.fn();

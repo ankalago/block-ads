@@ -72,12 +72,12 @@ export const rescueVideoId = (player: RescuePlayer): string | undefined => {
 
 /**
  * Interroga al player a intervalos acotados durante toda la ventana de vigía: el muro puede llegar
- * tarde (la página reasigna la respuesta del player después del arranque — la medición lo comprobó)
- * y una respuesta limpia temprana no autoriza a dejar de mirar. La ventana arranca cuando el player
- * se ve por primera vez (`watchMs`, porque en una carga lenta puede aparecer tarde) con un techo
- * absoluto desde la instalación (`absoluteMs`). Nunca pasa del máximo de rescates ni repite dentro
- * de la espera entre intentos. Los métodos del player son código de la página: una excepción se
- * cuenta y no mata la vigía.
+ * tarde (la medición en vivo lo comprobó: respuesta limpia durante los primeros 8 s, muro minutos
+ * después) y una respuesta limpia temprana no autoriza a dejar de mirar. La ventana arranca cuando
+ * el player se ve por primera vez (`watchMs`, minutos — los ticks en segundo plano disparan ~1/min
+ * y alcanzan) con un techo absoluto desde la instalación (`absoluteMs`). Nunca pasa del máximo de
+ * rescates ni repite dentro de la espera entre intentos. Los métodos del player son código de la
+ * página: una excepción se cuenta y no mata la vigía.
  */
 export const startPlayerRescue = (
   queryPlayer: () => RescuePlayer | undefined,

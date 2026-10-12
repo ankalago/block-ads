@@ -72,7 +72,7 @@ const run = (name, { wallFromStart, lateWall, throwingUntil, neverSeen }) => {
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox);
 
-  for (t = 0; t <= 80000; t += 250) {
+  for (t = 0; t <= 120000; t += 250) {
     const due = pending.filter((p) => p.at <= t);
     for (const p of due) {
       pending.splice(pending.indexOf(p), 1);
@@ -88,3 +88,6 @@ run("A muro desde el arranque", { wallFromStart: true });
 run("B player que tira excepciones y luego amanece con muro", { throwingUntil: 1500, lateWall: 1 });
 run("C player limpio toda la ventana", { wallFromStart: false });
 run("D player que nunca aparece", { neverSeen: true });
+// El paste real de Paul (13e0673): respuesta limpia durante la primera vigía, muro minutos
+// después. La vigía de minutos tiene que cazarlo.
+run("E muro que llega a los 20 s tras una respuesta limpia", { lateWall: 20000 });

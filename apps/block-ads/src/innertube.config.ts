@@ -34,14 +34,16 @@ export const PRUNE_RULES: readonly PruneRule[] = PRUNE_ENDPOINTS.map((endpoint) 
  * `window.ytInitialPlayerResponse` después de nuestra trampa de una sola escritura), se le pide una
  * respuesta fresca con `loadVideoById` — la única vía que la medición en vivo vio reproducir de
  * punta a punta: respuesta limpia y sesión SABR nueva. Acotado: a lo sumo dos rescates por página,
- * con espera entre intentos, y dos ventanas de vigía — `watchMs` desde que el player se ve por
- * primera vez (puede aparecer tarde en una carga lenta) y `absoluteMs` como techo absoluto desde la
- * instalación. Nada de bucles infinitos.
+ * con espera entre intentos. La medición en Chrome real (13e0673) mostró que el muro llega TARDE:
+ * la respuesta del player estuvo limpia durante los primeros 8 s y el muro apareció minutos
+ * después, sin pasar por el transporte visible. Por eso la vigía vive minutos — `watchMs` desde
+ * que el player se ve por primera vez (los ticks en segundo plano disparan ~1/min y alcanzan para
+ * verlo) y `absoluteMs` como techo absoluto desde la instalación. Nada de bucles infinitos.
  */
 export const PLAYER_RESCUE_CONFIG = {
-  intervalMs: 500,
-  watchMs: 30000,
-  absoluteMs: 60000,
+  intervalMs: 1000,
+  watchMs: 600000,
+  absoluteMs: 900000,
   maxAttempts: 2,
   retryGapMs: 2000,
 } as const;
