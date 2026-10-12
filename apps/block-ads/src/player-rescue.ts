@@ -20,7 +20,26 @@ export type RescuePlayer = {
   loadVideoById?: (videoId: string) => void;
 };
 
-export type RescueStatus = { playerRescues: number };
+/**
+ * Telemetría del rescate, etapa por etapa: el ciclo puede no correr (build viejo), no encontrar al
+ * player (carga lenta), no ver el muro o morir con una excepción de un método del player. Sin estos
+ * contadores, cada diagnóstico es una adivinanza y una ronda perdida con el usuario.
+ */
+export type RescueStatus = {
+  playerRescues: number;
+  rescueTicks: number;
+  rescuePlayerSeen: boolean;
+  rescueWallSeen: boolean;
+  rescueErrors: number;
+};
+
+export const rescueStatusSeed = (): RescueStatus => ({
+  playerRescues: 0,
+  rescueTicks: 0,
+  rescuePlayerSeen: false,
+  rescueWallSeen: false,
+  rescueErrors: 0,
+});
 
 declare global {
   interface HTMLElement {
@@ -52,11 +71,13 @@ export const rescueVideoId = (player: RescuePlayer): string | undefined => {
 };
 
 /**
- * Interroga al player a intervalos acotados durante todo el plazo: el muro puede llegar tarde (la
- * página reasigna la respuesta del player después del arranque — la medición lo comprobó), así que
- * una respuesta limpia temprana no autoriza a dejar de mirar. Se rinde al vencer el plazo y nunca
- * pasa del máximo de rescates, con una espera entre intentos para no pisar la respuesta fresca de
- * un rescate anterior mientras está en vuelo.
+ * Interroga al player a intervalos acotados durante toda la ventana de vigía: el muro puede llegar
+ * tarde (la página reasigna la respuesta del player después del arranque — la medición lo comprobó)
+ * y una respuesta limpia temprana no autoriza a dejar de mirar. La ventana arranca cuando el player
+ * se ve por primera vez (`watchMs`, porque en una carga lenta puede aparecer tarde) con un techo
+ * absoluto desde la instalación (`absoluteMs`). Nunca pasa del máximo de rescates ni repite dentro
+ * de la espera entre intentos. Los métodos del player son código de la página: una excepción se
+ * cuenta y no mata la vigía.
  */
 export const startPlayerRescue = (
   queryPlayer: () => RescuePlayer | undefined,
@@ -64,22 +85,33 @@ export const startPlayerRescue = (
   status: RescueStatus,
   config: PlayerRescueConfig = PLAYER_RESCUE_CONFIG,
 ): void => {
-  const startedAt = Date.now();
-  const state = { lastAttemptAt: -config.retryGapMs };
+  const installedAt = Date.now();
+  const state = { lastAttemptAt: -config.retryGapMs, firstSeenAt: -1 };
   const tick = (): void => {
     const player = queryPlayer();
-    const videoId = player === undefined ? undefined : rescueVideoId(player);
+    if (player !== undefined) {
+      status.rescuePlayerSeen = true;
+      if (state.firstSeenAt < 0) state.firstSeenAt = Date.now();
+    }
 
-    if (Date.now() - startedAt >= config.deadlineMs) return;
-    if (
-      player !== undefined &&
-      videoId !== undefined &&
-      status.playerRescues < config.maxAttempts &&
-      Date.now() - state.lastAttemptAt >= config.retryGapMs
-    ) {
-      state.lastAttemptAt = Date.now();
-      status.playerRescues += 1;
-      attempt(player, videoId);
+    const now = Date.now();
+    const watchExpired =
+      state.firstSeenAt < 0 ? now - installedAt >= config.absoluteMs : now - state.firstSeenAt >= config.watchMs;
+    if (watchExpired) return;
+
+    status.rescueTicks += 1;
+    try {
+      const videoId = player === undefined ? undefined : rescueVideoId(player);
+      if (player !== undefined && videoId !== undefined) {
+        status.rescueWallSeen = true;
+        if (status.playerRescues < config.maxAttempts && now - state.lastAttemptAt >= config.retryGapMs) {
+          state.lastAttemptAt = now;
+          status.playerRescues += 1;
+          attempt(player, videoId);
+        }
+      }
+    } catch {
+      status.rescueErrors += 1;
     }
     setTimeout(tick, config.intervalMs);
   };

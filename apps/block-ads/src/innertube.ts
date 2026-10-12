@@ -1,6 +1,6 @@
 import { hasEnforcementWall, neutralizeEnforcement } from "./enforcement.ts";
 import { NEUTRALIZED_KEYS, PRUNE_ENDPOINTS, PRUNE_RULES } from "./innertube.config.ts";
-import { PLAYER_ELEMENT_ID, startPlayerRescue } from "./player-rescue.ts";
+import { PLAYER_ELEMENT_ID, type RescueStatus, rescueStatusSeed, startPlayerRescue } from "./player-rescue.ts";
 
 /** JSON de una respuesta de InnerTube: el árbol que recorre la neutralización. */
 export type JsonObject = { readonly [key: string]: JsonValue };
@@ -351,15 +351,14 @@ export const INLINE_CARRIER = "ytInitialPlayerResponse";
  * Lo que el scriptlet publica en la página para que una carrera perdida sea verificable a mano.
  * `accessorInstalled`: se ganó la carrera y se instaló la trampa de una sola escritura.
  * `carrierPruned`: el carrier terminó neutralizado, por la trampa o por sobrescritura directa.
- * `playerRescues`: rescates ejecutados porque el player amaneció con el muro (§21).
+ * El resto es la telemetría del rescate del player, etapa por etapa (§21): si un campo nuevo falta
+ * en el paste del usuario, el build en el tab está desactualizado.
  */
-export type CarrierStatus = {
+export type CarrierStatus = RescueStatus & {
   accessorInstalled: boolean;
   carrierPruned: boolean;
   /** El server mandó el muro de enforcement en el carrier y la regla lo reescribió a OK. */
   wallRewritten: boolean;
-  /** Rescates del player: `loadVideoById` porque su respuesta viva trajo el muro. */
-  playerRescues: number;
 };
 
 /** Única forma del portador que nos interesa; `window` la cumple, un objeto llano de test también. */
@@ -433,10 +432,10 @@ declare global {
 }
 
 export const carrierStatusSeed = (): CarrierStatus => ({
+  ...rescueStatusSeed(),
   accessorInstalled: false,
   carrierPruned: false,
   wallRewritten: false,
-  playerRescues: 0,
 });
 
 /**
