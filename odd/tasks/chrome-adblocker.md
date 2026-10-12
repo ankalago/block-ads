@@ -432,3 +432,18 @@ Open: run 1 had no telemetry, so the punished-stream hypothesis stays unmeasured
 retrospective (did the earlier 5.5 s tests show picture, or audio-only?) is still unanswered. The
 rescue doubles as the discriminating experiment: playback *with picture* after the wall proves the
 carrier path was never sufficient on its own.
+
+## Rescue brake removed: the wall can arrive late (2d6ab20 -> this unit)
+
+Paul's follow-up cold start exposed a flaw in the rescue's first build: `playerRescues: 0` with the
+enforcement wall live in the player's response (`estadoPlayer 5`, `errorScreen:
+enforcementMessageViewModel`). His carrier woke up clean (`carrierPruned: true`, `wallRewritten:
+false`), the player bootstrapped from that clean response, and the cycle stopped at the first tick
+("response exists, no wall -> done"). The flagged response replaced the player's answer only
+afterwards - exactly the late-arrival mechanism §21 documented, now confirmed twice.
+
+Fix (TDD): the early-stop is gone. The cycle polls the full 15 s deadline because a clean early
+response proves nothing about what comes next, with a 2 s retry gap so a rescue never stomps the
+in-flight fresh response of a previous one (tests 112 -> 113; `pnpm check:ci` 0). `vm` smoke against
+the rebuilt artifact reproduces Paul's exact session: clean at bootstrap + wall at 2 s -> rescue
+fires; wall from the start -> exactly 2 rescues separated by the gap; clean throughout -> 0.

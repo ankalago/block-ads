@@ -52,9 +52,11 @@ export const rescueVideoId = (player: RescuePlayer): string | undefined => {
 };
 
 /**
- * Interroga al player a intervalos acotados. Para en cuanto exista una respuesta sin muro (limpia o
- * de error ajeno: no es nuestra pelea), al vencer el plazo, y nunca pasa del máximo de rescates.
- * Un player sin respuesta todavía se sigue interrogando hasta que amanezca la suya.
+ * Interroga al player a intervalos acotados durante todo el plazo: el muro puede llegar tarde (la
+ * página reasigna la respuesta del player después del arranque — la medición lo comprobó), así que
+ * una respuesta limpia temprana no autoriza a dejar de mirar. Se rinde al vencer el plazo y nunca
+ * pasa del máximo de rescates, con una espera entre intentos para no pisar la respuesta fresca de
+ * un rescate anterior mientras está en vuelo.
  */
 export const startPlayerRescue = (
   queryPlayer: () => RescuePlayer | undefined,
@@ -63,14 +65,19 @@ export const startPlayerRescue = (
   config: PlayerRescueConfig = PLAYER_RESCUE_CONFIG,
 ): void => {
   const startedAt = Date.now();
+  const state = { lastAttemptAt: -config.retryGapMs };
   const tick = (): void => {
     const player = queryPlayer();
-    const response = player?.getPlayerResponse?.();
     const videoId = player === undefined ? undefined : rescueVideoId(player);
 
-    if (player !== undefined && videoId === undefined && response !== undefined) return;
     if (Date.now() - startedAt >= config.deadlineMs) return;
-    if (player !== undefined && videoId !== undefined && status.playerRescues < config.maxAttempts) {
+    if (
+      player !== undefined &&
+      videoId !== undefined &&
+      status.playerRescues < config.maxAttempts &&
+      Date.now() - state.lastAttemptAt >= config.retryGapMs
+    ) {
+      state.lastAttemptAt = Date.now();
       status.playerRescues += 1;
       attempt(player, videoId);
     }

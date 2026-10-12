@@ -88,7 +88,7 @@ describe("el ciclo de rescate acotado", () => {
     expect(attempt).toHaveBeenCalledTimes(PLAYER_RESCUE_CONFIG.maxAttempts);
   });
 
-  it("dejan de interrogar al player cuando su respuesta existe y no trae muro", () => {
+  it("siguen interrogando aunque la respuesta amanezca limpia: el muro puede llegar tarde", () => {
     const status = { playerRescues: 0 };
     const attempt = vi.fn();
     const query = vi.fn(() => cleanPlayer());
@@ -96,8 +96,23 @@ describe("el ciclo de rescate acotado", () => {
 
     vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.deadlineMs + PLAYER_RESCUE_CONFIG.intervalMs);
 
-    expect(query).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls.length).toBeGreaterThanOrEqual(20);
     expect(attempt).not.toHaveBeenCalled();
+  });
+
+  it("no repiten el rescate dentro de la espera entre intentos", () => {
+    const status = { playerRescues: 0 };
+    const attempt = vi.fn();
+    startPlayerRescue(() => walledPlayer(), attempt, status);
+
+    vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.intervalMs);
+    expect(status.playerRescues).toBe(1);
+
+    vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.intervalMs);
+    expect(status.playerRescues).toBe(1);
+
+    vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.deadlineMs);
+    expect(status.playerRescues).toBe(PLAYER_RESCUE_CONFIG.maxAttempts);
   });
 
   it("ignoran los ticks previos a que el player exista y siguen interrogando", () => {

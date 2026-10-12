@@ -40,5 +40,6 @@ export const PLAYER_RESCUE_CONFIG = {
   intervalMs: 500,
   deadlineMs: 15000,
   maxAttempts: 2,
+  retryGapMs: 2000,
 } as const;
 export type PlayerRescueConfig = typeof PLAYER_RESCUE_CONFIG;

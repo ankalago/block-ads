@@ -880,3 +880,13 @@ verde, `check:ci` 0.
 castigado explica lo visto pero no está medida. El rescate es el primer mecanismo que esquiva el
 stream del carrier por completo — es el experimento que discrimina: si `loadVideoById` tras el
 muro juega con imagen, el carrier nunca fue suficiente.
+
+**Cierre de §21 (corrección del rescate).** La primera build del rescate tenía un freno que la sesión
+de Paul desactivó: dejaba de interrogar ante la primera respuesta del player sin muro. El carrier de
+esa sesión amaneció limpio (`carrierPruned: true`, `wallRewritten: false`), el player arrancó de esa
+respuesta limpia y el ciclo se frenó en el primer tick; el muro flagueado llegó recién después —
+`playerRescues: 0` con `errorScreen: enforcementMessageViewModel` vivo en la respuesta del player.
+Corrección: el ciclo vigila los 15 s completos porque **el muro puede llegar tarde**, con 2 s de
+espera entre intentos para no pisar la respuesta fresca de un rescate anterior. Verificado en vm con
+el escenario exacto: limpio al arranque + muro a los 2 s → rescate; muro temprano → 2 rescates
+separados; limpio todo el plazo → 0.
