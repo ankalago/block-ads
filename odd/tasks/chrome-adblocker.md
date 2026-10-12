@@ -397,3 +397,38 @@ the carrier descriptor still `data` + `configurable: false`.
 
 Next: one ad-bearing video, three runs with the new probe. `adsFound.adPlacements > 0` with `muro false` and
 playback = blocking works and task 7 closes. `adsFound` absent = wrong video, no ad break scheduled.
+
+## Carrier overwritten after the one-shot trap; player rescue shipped (78cd779 -> this unit)
+
+The `FORMA-ERROR` dump (no reload, same session as the failing cold start) settles the mystery of the
+wall our rule never saw: **the carrier and the player wake up holding the very same enforcement wall**
+(identical tracking params and feedback tokens) while telemetry reported `wallRewritten: false`,
+`enforcement: 0`, `carrierPruned: true`. Both carrier paths (trap and lost race) check the wall when
+they process it, so the flagged value arrived afterwards: **the page reassigns
+`window.ytInitialPlayerResponse` more than once per load**, and the second assignment lands on the
+writable data property our one-shot trap restores — uninspected by design.
+
+The three live runs line up into one story:
+
+| Path | Run | Outcome |
+|---|---|---|
+| Flagged carrier healed to OK | 1 | audio without video: the flagged response's SABR stream arrives punished |
+| Carrier overwritten with the wall (v2) | 2 | hard wall, nothing plays |
+| Fresh request via `loadVideoById` | Test 2 x2 | the only path ever seen playing end to end |
+
+Shipped (TDD, new `src/player-rescue.ts`): re-healing the carrier would restore the message but keep
+the poisoned stream, so the rescue attacks the outcome instead. When the player's live response
+carries the enforcement wall, `loadVideoById(videoId)` asks for a fresh response — clean **and** with a
+new SABR session — which comes back through the transport already pruned of ads. Bounded: 500 ms
+poll, 15 s deadline, at most 2 rescues per page, and it stops as soon as a response without the wall
+exists (clean or foreign error — not our fight). `CarrierStatus.playerRescues` publishes the count
+under `blockadsdebug`.
+
+Verification: extension tests 102 -> 112 (`pnpm check:ci` 0), `dist/innertube.js` rebuilt, and a Node
+`vm` smoke of the wiring — a walled player gets exactly 2 rescues of `dQw4w9WgXcQ` and the poll stops
+once the response turns clean; a clean player is never touched.
+
+Open: run 1 had no telemetry, so the punished-stream hypothesis stays unmeasured, and Paul's
+retrospective (did the earlier 5.5 s tests show picture, or audio-only?) is still unanswered. The
+rescue doubles as the discriminating experiment: playback *with picture* after the wall proves the
+carrier path was never sufficient on its own.

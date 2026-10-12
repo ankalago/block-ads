@@ -28,3 +28,17 @@ export const PRUNE_RULES: readonly PruneRule[] = PRUNE_ENDPOINTS.map((endpoint) 
   endpoint,
   keys: NEUTRALIZED_KEYS,
 }));
+
+/**
+ * Rescate del player: si el player amanece con el muro de enforcement (la página puede reasignar
+ * `window.ytInitialPlayerResponse` después de nuestra trampa de una sola escritura), se le pide una
+ * respuesta fresca con `loadVideoById` — la única vía que la medición en vivo vio reproducir de
+ * punta a punta: respuesta limpia y sesión SABR nueva. Acotado: a lo sumo dos rescates por página
+ * y con plazo; nada de bucles infinitos.
+ */
+export const PLAYER_RESCUE_CONFIG = {
+  intervalMs: 500,
+  deadlineMs: 15000,
+  maxAttempts: 2,
+} as const;
+export type PlayerRescueConfig = typeof PLAYER_RESCUE_CONFIG;

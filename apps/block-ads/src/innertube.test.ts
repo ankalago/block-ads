@@ -392,10 +392,10 @@ describe("el carrier inline vuelve a ser data property después de neutralizarlo
     const status = carrierStatusSeed();
 
     expect(shadowInlineCarrier(host, NEUTRALIZED_KEYS, status)).toBe(true);
-    expect(status).toEqual({ accessorInstalled: true, carrierPruned: false, wallRewritten: false });
+    expect(status).toEqual({ accessorInstalled: true, carrierPruned: false, wallRewritten: false, playerRescues: 0 });
 
     host.ytInitialPlayerResponse = carrier();
-    expect(status).toEqual({ accessorInstalled: true, carrierPruned: true, wallRewritten: false });
+    expect(status).toEqual({ accessorInstalled: true, carrierPruned: true, wallRewritten: false, playerRescues: 0 });
   });
 
   it("restauran en el acto cuando el carrier ya venía asignado al instalarse", () => {
@@ -465,7 +465,12 @@ describe("el carrier inline vuelve a ser data property después de neutralizarlo
   });
 
   it("seed de estado arranca sin trampa ni poda", () => {
-    expect(carrierStatusSeed()).toEqual({ accessorInstalled: false, carrierPruned: false, wallRewritten: false });
+    expect(carrierStatusSeed()).toEqual({
+      accessorInstalled: false,
+      carrierPruned: false,
+      wallRewritten: false,
+      playerRescues: 0,
+    });
   });
 });
 

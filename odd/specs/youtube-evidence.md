@@ -835,3 +835,48 @@ carrier y fetch; respuesta limpia sin reconstrucción; `playerErrorMessageRender
 anuncios dentro del stream (server-side stitching), que este filtro no ve; y el enforcement puede
 escalar por acumulación de señales (la cuenta de "3 strikes" del ecosistema). La regla actual
 reescribe el muro cuando aparece; no evita que el server lo mande.
+
+## §21 — El muro tiene otra puerta: la página reasigna el carrier después de la trampa (2025-10-12)
+
+**La medición (`FORMA-ERROR`, sin recargar).** Con la extensión 78cd779 puesta, un cold start quedó
+en muro duro (nada suena, `estadoPlayer: 5`). El volcado de la sesión:
+
+- `movie_player.getPlayerResponse().playabilityStatus` → `status: "ERROR"` **con**
+  `errorScreen.enforcementMessageViewModel` (título del muro, botones, `displayType: PLAYER`,
+  `isVisible: true`).
+- `window.ytInitialPlayerResponse.playabilityStatus` → **idéntico** (mismos `trackingParams`,
+  mismos tokens de feedback): el player y el carrier tienen la misma respuesta.
+- `rutas: ["/youtubei/v1/next", "/youtubei/v1/player"]` — ambas pasaron por el transport.
+- Telemetría de esa misma sesión: `wallRewritten: false`, `enforcement: 0`, `carrierPruned: true`.
+
+**La deducción.** Las dos vías del carrier (trampa y carrera perdida) chequean el muro al
+procesarlo; `wallRewritten: false` significa que **cuando lo procesamos no tenía muro**. Y ahora lo
+tiene. La respuesta flagueada entró después: **la página reasigna `window.ytInitialPlayerResponse`
+más de una vez por carga**, y la segunda asignación cae en la data property writable que la trampa
+restaura — por diseño sin huella — y por diseño de una sola escritura, sin inspeccionar. El muro de
+esta sesión nunca pasó por la trampa ni por el transport: por eso `enforcement: 0`.
+
+**Las tres corridas comparadas:**
+
+| Camino | Corrida | Resultado |
+|---|---|---|
+| Carrier flagueado + reescrito a OK | run 1 | audio sin video: el stream de la respuesta flagueada llega castigado |
+| Carrier sobrescrito con el muro (v2) | run 2 | muro duro, nada suena |
+| Request fresca (`loadVideoById`) | Test 2 ×2 | la única vía que jugó de punta a punta |
+
+**Consecuencia de código (TDD, módulo `src/player-rescue.ts`).** Reparar el carrier de nuevo no
+alcanza: dejaría el stream envenenado del run 1. El rescate ataca el resultado: si la respuesta
+viva del player trae el muro, se le pide una respuesta fresca con `loadVideoById` — respuesta
+limpia **y sesión SABR nueva**, que además vuelve por el transport ya podada de anuncios. Acotado:
+interroga cada 500 ms, se rinde a los 15 s, nunca más de 2 rescates por página, y se detiene en
+cuanto existe una respuesta sin muro (limpia o de error ajeno). El contador `playerRescues` en el
+estado de carrier hace el rescate visible en telemetría.
+
+**Verificación del artefacto real (`vm`):** player con muro → 2 rescates de `dQw4w9WgXcQ`, contador
+en 2, ciclo detenido cuando la respuesta amaneció limpia; player limpio → 0 rescates. Suite 112 en
+verde, `check:ci` 0.
+
+**Queda abierto:** la corrida 1 (audio solo) nunca tuvo telemetría; la hipótesis del stream
+castigado explica lo visto pero no está medida. El rescate es el primer mecanismo que esquiva el
+stream del carrier por completo — es el experimento que discrimina: si `loadVideoById` tras el
+muro juega con imagen, el carrier nunca fue suficiente.

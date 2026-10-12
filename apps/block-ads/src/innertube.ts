@@ -1,5 +1,6 @@
 import { hasEnforcementWall, neutralizeEnforcement } from "./enforcement.ts";
 import { NEUTRALIZED_KEYS, PRUNE_ENDPOINTS, PRUNE_RULES } from "./innertube.config.ts";
+import { PLAYER_ELEMENT_ID, startPlayerRescue } from "./player-rescue.ts";
 
 /** JSON de una respuesta de InnerTube: el árbol que recorre la neutralización. */
 export type JsonObject = { readonly [key: string]: JsonValue };
@@ -350,12 +351,15 @@ export const INLINE_CARRIER = "ytInitialPlayerResponse";
  * Lo que el scriptlet publica en la página para que una carrera perdida sea verificable a mano.
  * `accessorInstalled`: se ganó la carrera y se instaló la trampa de una sola escritura.
  * `carrierPruned`: el carrier terminó neutralizado, por la trampa o por sobrescritura directa.
+ * `playerRescues`: rescates ejecutados porque el player amaneció con el muro (§21).
  */
 export type CarrierStatus = {
   accessorInstalled: boolean;
   carrierPruned: boolean;
   /** El server mandó el muro de enforcement en el carrier y la regla lo reescribió a OK. */
   wallRewritten: boolean;
+  /** Rescates del player: `loadVideoById` porque su respuesta viva trajo el muro. */
+  playerRescues: number;
 };
 
 /** Única forma del portador que nos interesa; `window` la cumple, un objeto llano de test también. */
@@ -432,6 +436,7 @@ export const carrierStatusSeed = (): CarrierStatus => ({
   accessorInstalled: false,
   carrierPruned: false,
   wallRewritten: false,
+  playerRescues: 0,
 });
 
 /**
@@ -536,6 +541,16 @@ export const installInnerTubePatch = (): CarrierStatus => {
   const status = carrierStatusSeed();
   if (publish) window.__blockAdsInnerTube = status;
   shadowInlineCarrier(window, NEUTRALIZED_KEYS, status, network);
+
+  // El player puede amanecer con el muro aunque el carrier haya salido limpio (la página reasigna
+  // el carrier después de la trampa); sin document (vm/tests) no hay player que interrogar.
+  if (typeof document !== "undefined") {
+    startPlayerRescue(
+      () => document.getElementById(PLAYER_ELEMENT_ID) ?? undefined,
+      (player, videoId) => player.loadVideoById?.(videoId),
+      status,
+    );
+  }
 
   return status;
 };
