@@ -447,3 +447,45 @@ response proves nothing about what comes next, with a 2 s retry gap so a rescue 
 in-flight fresh response of a previous one (tests 112 -> 113; `pnpm check:ci` 0). `vm` smoke against
 the rebuilt artifact reproduces Paul's exact session: clean at bootstrap + wall at 2 s -> rescue
 fires; wall from the start -> exactly 2 rescues separated by the gap; clean throughout -> 0.
+
+## Rescue hardened with stage telemetry: one paste pins the failing stage (bb032a4 -> 13e0673)
+
+Paul's next paste kept `playerRescues: 0` with the wall live and `loadDisponible: "function"`.
+With the brake already removed, three suspects remained indistinguishable from that one paste: a
+stale build in the tab, a player element surfacing after the deadline, or a page method throwing
+and silently killing the poll. Instead of another blind round, the cycle now answers by itself.
+
+Fix (TDD, tests 113 -> 117; `pnpm check:ci` 0):
+
+- **Stage telemetry** on `RescueStatus` (now embedded in `CarrierStatus`): `rescueTicks`,
+  `rescuePlayerSeen`, `rescueWallSeen`, `rescueErrors`. One probe tells whether the watch ran,
+  whether the player was ever found, whether the wall was ever seen, and how many page-method
+  exceptions were swallowed. A paste missing these fields *is* the stale-build proof.
+- **Exceptions are counted, not fatal**: the tick body is wrapped, so a throwing
+  `getPlayerResponse`/`getVideoData`/`loadVideoById` can no longer kill the watch silently.
+- **Two windows instead of one deadline**: `watchMs` (30 s) counted from the *first player
+  sighting* (a slow load may surface the player late) and `absoluteMs` (60 s) as a hard ceiling
+  from install. No infinite loops.
+- **vm smoke harness** (`scripts/vm-rescue-smoke.mjs`) with a virtual clock driving both timers
+  and `Date.now`: walled start -> 2 rescues separated by the gap; throwing player -> errors
+  counted, watch survives, rescue still fires; clean player -> 0 rescues; absent player -> stops
+  at the absolute ceiling.
+
+Building the harness also caught a lesson: a pump that clears *all* pending timers each step
+wipes future ticks; only due timers may be retired. The real page has real timers, so this was a
+harness bug, not an extension bug - but it initially made every scenario look like Paul's paste.
+
+## Watch extended to minutes: the wall arrives late via an invisible path (13e0673 -> e4dd88f)
+
+Paul's first stage-telemetry paste resolved the stale-build ambiguity and pinned the failure:
+`rescueTicks: 16` (8s), `rescuePlayerSeen: true`, `rescueWallSeen: false`, `rescueErrors: 0`, with
+the wall live in the player's response minutes later. The watch saw a clean response at every tick
+during its 8s life; the wall arrived while the tab was backgrounded and the 30s real-clock deadline
+expired. `enforcement: 0` (transport), `wallRewritten: false` (carrier), clean during the watch
+(player): the wall's arrival path never crosses anything we observe - client-fabricated or via an
+unwrapped transport.
+
+Fix (TDD, tests 117 -> 118; `pnpm check:ci` 0): `watchMs` 10min from the first player sighting,
+`absoluteMs` 15min ceiling, 1s interval - background timers fire about once per minute, enough to
+see the wall and rescue. vm smoke scenario E replays the measured session (clean 20s, wall, rescue
+immediately).

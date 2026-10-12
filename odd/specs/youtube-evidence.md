@@ -890,3 +890,30 @@ Corrección: el ciclo vigila los 15 s completos porque **el muro puede llegar ta
 espera entre intentos para no pisar la respuesta fresca de un rescate anterior. Verificado en vm con
 el escenario exacto: limpio al arranque + muro a los 2 s → rescate; muro temprano → 2 rescates
 separados; limpio todo el plazo → 0.
+
+## §22. La vigía de 8 segundos y el muro que llega tarde por un camino invisible (2025-10-12)
+
+Primera corrida con la telemetría de etapa (13e0673): `rescueTicks: 16` (8 s a 500 ms),
+`rescuePlayerSeen: true`, `rescueWallSeen: false`, `rescueErrors: 0` — y `LIVE` minutos después con
+el muro en la respuesta del player (`estadoPlayer 5`, `errorScreen enforcementMessageViewModel`,
+`loadDisponible "function"`).
+
+Dos hechos medidos:
+
+1. **El muro llega tarde.** Durante los 8 s que la vigía vivió, `getPlayerResponse()` estuvo limpia
+   en cada tick. El muro apareció después — mientras el tab estaba en segundo plano, donde el plazo
+de 30 s de reloj real venció y la vigía se rindió (Chrome estrangula los timers encadenados a
+~1/min en tabs ocultos; cada tick de fondo hubiera visto el muro si la ventana no hubiera vencido).
+2. **El camino del muro es invisible para las tres capas.** Transporte: `enforcement: 0` — ninguna
+   respuesta flagueada cruzó el fetch/XHR envuelto (RED: 21 vistas, 1 match en `/youtubei/v1/player`
+   con `neutralized: 1`, sin muro). Carrier: `wallRewritten: false`. Player durante la vigía: limpio.
+   Conclusión: el muro **materializa del lado del cliente** (o entra por un transporte que no
+   envolvemos — worker, iframe, `CacheStorage`) — nunca cruza la capa que observamos.
+
+Corrección (e4dd88f): la vigía vive minutos, no segundos — `watchMs` 10 min desde el primer
+avistamiento del player (los ticks de fondo a ~1/min alcanzan para ver el muro), `absoluteMs`
+15 min de techo, intervalo de 1 s, máximo 2 rescates con 2 s de espera. El humo de vm replica la
+sesión medida (escenario E: 19 ticks limpios, muro a los 20 s, rescate inmediato).
+
+Pregunta abierta: si el muro es fabricado por el cliente tras una señal (¿`pagead/id`?), bloquear la
+señal con DNR podría impedirlo de raíz; eso queda para la próxima decisión con evidencia.
