@@ -500,3 +500,14 @@ subscribes `visibilitychange` (visible) and `play` in capture phase. Smoke scena
 the frozen session (timers dead at 5s, wall at 10s, focus at 30s -> rescue at 30s) and fixes a
 harness regression where lateWall scenarios lost their wall. Gate green (extension 121, core
 145, rules 8). Evidence: `odd/specs/youtube-evidence.md` §23.
+
+## Last-inspect timestamp + pointerdown nudge make the next paste discriminating (ca2740e -> 1a674a8)
+
+The second nudge-era paste (ticks 5, wall present, zero rescues) could not distinguish a stale
+build from a page that never became visible (undocked DevTools occludes the tab, so no
+visibilitychange and frozen timers). Fix, test-first (121 -> 122): `rescueLastAt` records the
+most recent inspection (timer or nudge; -1 sentinel) — a paste missing the field proves a stale
+build, a field frozen at ~5s proves the chain died there; `pointerdown` in capture phase joins
+visibilitychange and play as a nudge, so any user gesture interrogates the player while the tab
+stays occluded. Smoke scenarios F/G cover both routes past a frozen chain. Gate green
+(extension 122, core 145, rules 8). Evidence: §24.
