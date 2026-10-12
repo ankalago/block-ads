@@ -944,3 +944,22 @@ Predicción falsable para la próxima corrida: con el muro presente al volver al
 mostrar `playerRescues ≥ 1` con `rescueTicks` mayor que 5 (los nudges cuentan como ticks) y el
 video reiniciado limpio. Si el tab queda en primer plano desde la carga, la cadena de timers de
 1 s lo caza sin nudges.
+
+## §24. El marcador de vida: rescueLastAt y el nudge por gesto (2025-10-12)
+
+Segunda corrida con nudges (paste tras recargar ca2740e): `rescueTicks: 5`, `rescueWallSeen:
+false`, rescues 0, muro presente al pegar. Con nudges instalados, ese paste ya no distingue dos
+mundos: (a) build rancia — la extensión no recargó el dist nuevo; (b) página nunca visible — un
+DevTools desacoplado mantiene al tab ocluido, el `visibilitychange` nunca dispara y los timers
+siguen congelados; el usuario pega desde la ventana de DevTools sin enfocar la página.
+
+Corrección (1a674a8, tests 121→122): `RescueStatus` lleva `rescueLastAt` (marca de tiempo de la
+última inspección, por timer o nudge, -1 si no hubo ninguna) y el wiring agrega `pointerdown`
+en captura como tercer nudge: cualquier gesto del usuario sobre la página interroga al player,
+aunque el tab siga ocluido con timers congelados. El humo replica ambas rutas (F: foco; G:
+toque) con la cadena congelada a los 5 s y rescate a los 30 s exactos.
+
+Discriminador para la próxima corrida: el ESTADO debe traer `rescueLastAt` — **si falta el
+campo, la build está rancia** (prueba de recarga omitida); si está y quedó en ~5 s de vida de
+página, la cadena murió ahí y ningún nudge se disparó; si está fresco respecto de `Date.now()`
+al pegar, la vigía vive y la lectura dice la hora exacta de la última mirada.
