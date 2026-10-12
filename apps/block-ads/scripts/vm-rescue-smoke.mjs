@@ -1,5 +1,6 @@
 // Smoke vm del rescate endurecido: telemetría por etapa + supervivencia a excepciones.
 // El pump solo retira los timers que vencen en cada paso; jamás limpia los futuros.
+// La location NO lleva token: la telemetría se publica siempre, sin opt-in por URL.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
@@ -76,7 +77,7 @@ const run = (name, { wallFromStart, lateWall, wallAfter, throwingUntil, neverSee
     fetch: async () => new Response(JSON.stringify({}), { headers: { "content-type": "application/json" } }),
   };
   sandbox.window = sandbox;
-  sandbox.location = { search: "?blockadsdebug" };
+  sandbox.location = { search: "" };
   sandbox.XMLHttpRequest = class {
     open() {}
     send() {}
@@ -103,6 +104,7 @@ const run = (name, { wallFromStart, lateWall, wallAfter, throwingUntil, neverSee
   }
 
   const s = sandbox.window.__blockAdsInnerTube;
+  if (s === undefined) throw new Error(`${name}: la telemetría no se publicó sin token`);
   console.log(`${name}: ${JSON.stringify(s)} rescates=${JSON.stringify(rescues)}`);
 };
 

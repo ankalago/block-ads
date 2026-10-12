@@ -365,11 +365,6 @@ export type CarrierStatus = RescueStatus & {
 export type CarrierHost = { ytInitialPlayerResponse?: JsonValue };
 
 /**
- * Telemetría opt-in: el estado solo se publica si la URL trae este token, porque un global legible
- * por la página es una huella que cualquier script de YouTube puede comprobar.
- */
-export const DEBUG_PARAM = "blockadsdebug";
-
 /**
  * Contadores del transport parcheado. Sirven para una sola pregunta que el HTML no responde:
  * ¿la petición de `player` pasó por este realm? Con `seen > 0` y `matched === 0` mientras el
@@ -390,7 +385,6 @@ export type NetworkStatus = {
 export const MAX_MATCHED_PATHS = 8;
 
 export const NETWORK_STATUS_KEY = "__blockAdsNetwork";
-
 export const networkStatusSeed = (): NetworkStatus => ({
   seen: 0,
   matched: 0,
@@ -420,8 +414,6 @@ export const markNeutralized = (network: NetworkStatus): void => {
 export const markEnforcementRewritten = (network: NetworkStatus): void => {
   network.enforcement += 1;
 };
-
-export const shouldPublishStatus = (search: string): boolean => search.includes(DEBUG_PARAM);
 
 declare global {
   interface Window {
@@ -530,15 +522,17 @@ export const installInnerTubePatch = (): CarrierStatus => {
   if (typeof window === "undefined") return carrierStatusSeed();
 
   const network = networkStatusSeed();
-  const publish = shouldPublishStatus(window.location.search);
 
   installFetchPatch(network);
   installXhrPatch(network);
 
-  if (publish) window[NETWORK_STATUS_KEY] = network;
+  window[NETWORK_STATUS_KEY] = network;
 
   const status = carrierStatusSeed();
-  if (publish) window.__blockAdsInnerTube = status;
+  // La telemetría se publica siempre: el token de URL se perdía en navegaciones internas de
+  // YouTube y dejaba la diagnosis cieca (paste con ESTADO undefined). El coste son dos claves
+  // de window en una extensión en desarrollo; ninguna decisión de bloqueo depende de ellas.
+  window.__blockAdsInnerTube = status;
   shadowInlineCarrier(window, NEUTRALIZED_KEYS, status, network);
 
   // El player puede amanecer con el muro aunque el carrier haya salido limpio (la página reasigna

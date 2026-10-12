@@ -5,7 +5,6 @@ import {
   type CarrierStatus,
   carrierStatusSeed,
   countAdKeys,
-  DEBUG_PARAM,
   INLINE_CARRIER,
   initialResponseValue,
   isPrunedEndpoint,
@@ -19,7 +18,6 @@ import {
   pruneResponsePayload,
   recordTransport,
   shadowInlineCarrier,
-  shouldPublishStatus,
   xhrShadows,
 } from "./innertube.ts";
 
@@ -499,25 +497,9 @@ describe("el carrier inline vuelve a ser data property después de neutralizarlo
   });
 });
 
-describe("telemetría de estado opt-in por token de URL", () => {
-  it("publica con el token de depuración presente", () => {
-    expect(shouldPublishStatus("?blockadsdebug=1")).toBe(true);
-  });
-
-  it("publica con el token en cualquier posición de la query", () => {
-    expect(shouldPublishStatus("?v=x&blockadsdebug")).toBe(true);
-  });
-
-  it("no publica con query vacía", () => {
-    expect(shouldPublishStatus("")).toBe(false);
-  });
-
-  it("no publica en un watch normal de YouTube", () => {
-    expect(shouldPublishStatus("?v=dQw4w9WgXcQ")).toBe(false);
-  });
-
-  it("fija el nombre del token para que no se renombre por accidente", () => {
-    expect(DEBUG_PARAM).toBe("blockadsdebug");
+describe("telemetría de estado publicada siempre", () => {
+  it("fija el nombre del estado de red para que no se renombre por accidente", () => {
+    expect(NETWORK_STATUS_KEY).toBe("__blockAdsNetwork");
   });
 
   it("no añade la clave de telemetría al host al podar el carrier", () => {
