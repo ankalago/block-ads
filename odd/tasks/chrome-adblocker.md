@@ -489,3 +489,14 @@ Fix (TDD, tests 117 -> 118; `pnpm check:ci` 0): `watchMs` 10min from the first p
 `absoluteMs` 15min ceiling, 1s interval - background timers fire about once per minute, enough to
 see the wall and rescue. vm smoke scenario E replays the measured session (clean 20s, wall, rescue
 immediately).
+
+## Nudge-driven rescue: frozen background timers cannot stop it (e4dd88f -> ca2740e)
+
+Paul's paste with the minutes-long watch showed `rescueTicks: 5` and permanent silence: Chrome
+freezes background-tab timers outright, and the wall arrived right after the last read (§23).
+Fix, test-first (118 -> 121 tests): `inspect` split from the timer chain, `NudgeSubscribe` hook
+fires inspections outside the watch deadline (still capped by maxAttempts and retryGap); wiring
+subscribes `visibilitychange` (visible) and `play` in capture phase. Smoke scenario F replays
+the frozen session (timers dead at 5s, wall at 10s, focus at 30s -> rescue at 30s) and fixes a
+harness regression where lateWall scenarios lost their wall. Gate green (extension 121, core
+145, rules 8). Evidence: `odd/specs/youtube-evidence.md` §23.
