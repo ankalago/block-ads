@@ -1,5 +1,5 @@
 import { hasEnforcementWall, neutralizeEnforcement } from "./enforcement.ts";
-import { NEUTRALIZED_KEYS, PRUNE_ENDPOINTS, PRUNE_RULES } from "./innertube.config.ts";
+import { NEUTRALIZED_KEYS, PLAYER_RESCUE_CONFIG, PRUNE_ENDPOINTS, PRUNE_RULES } from "./innertube.config.ts";
 import { PLAYER_ELEMENT_ID, type RescueStatus, rescueStatusSeed, startPlayerRescue } from "./player-rescue.ts";
 
 /** JSON de una respuesta de InnerTube: el árbol que recorre la neutralización. */
@@ -542,12 +542,22 @@ export const installInnerTubePatch = (): CarrierStatus => {
   shadowInlineCarrier(window, NEUTRALIZED_KEYS, status, network);
 
   // El player puede amanecer con el muro aunque el carrier haya salido limpio (la página reasigna
-  // el carrier después de la trampa); sin document (vm/tests) no hay player que interrogar.
+  // el carrier después de la trampa); sin document (vm/tests) no hay player que interrogar. Los
+  // nudges corren fuera de la cadena de timers porque Chrome congela los timers de tabs en segundo
+  // plano por completo: al volver el foco y al intentar reproducir, se interroga al player al acto.
   if (typeof document !== "undefined") {
     startPlayerRescue(
       () => document.getElementById(PLAYER_ELEMENT_ID) ?? undefined,
       (player, videoId) => player.loadVideoById?.(videoId),
       status,
+      PLAYER_RESCUE_CONFIG,
+      (handler) => {
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") handler();
+        });
+        // `play` no burbujea; en captura el document lo recibe igual.
+        document.addEventListener("play", handler, true);
+      },
     );
   }
 

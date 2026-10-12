@@ -124,6 +124,78 @@ describe("el ciclo de rescate acotado", () => {
     expect(query.mock.calls.length).toBeGreaterThan(calls);
   });
 
+  it("rescatan al volver el foco aunque la vigía por timer esté congelada o vencida", () => {
+    const status = rescueStatusSeed();
+    const attempt = vi.fn();
+    const nudges: Array<() => void> = [];
+    const wall = { on: false };
+    startPlayerRescue(
+      () => (wall.on ? walledPlayer() : cleanPlayer()),
+      attempt,
+      status,
+      PLAYER_RESCUE_CONFIG,
+      (handler) => {
+        nudges.push(handler);
+      },
+    );
+
+    // El tab pierde el foco y los timers se congelan; el muro llega sin que ningún timer corra.
+    vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.watchMs + PLAYER_RESCUE_CONFIG.intervalMs);
+    expect(attempt).not.toHaveBeenCalled();
+
+    wall.on = true;
+    nudges[0]?.();
+    expect(status.playerRescues).toBe(1);
+  });
+
+  it("rescatan cuando el video intenta reproducirse con el muro presente", () => {
+    const status = rescueStatusSeed();
+    const attempt = vi.fn();
+    const nudges: Array<() => void> = [];
+    startPlayerRescue(
+      () => walledPlayer(),
+      attempt,
+      status,
+      PLAYER_RESCUE_CONFIG,
+      (handler) => {
+        nudges.push(handler);
+      },
+    );
+
+    // Sin avanzar el reloj: timers congelados; el usuario aprieta play y el nudge corre.
+    nudges[0]?.();
+    expect(status.playerRescues).toBe(1);
+    expect(status.rescueWallSeen).toBe(true);
+  });
+
+  it("no pasan del máximo de rescates aunque el foco vuelva muchas veces", () => {
+    const status = rescueStatusSeed();
+    const attempt = vi.fn();
+    const nudges: Array<() => void> = [];
+    startPlayerRescue(
+      () => walledPlayer(),
+      attempt,
+      status,
+      PLAYER_RESCUE_CONFIG,
+      (handler) => {
+        nudges.push(handler);
+      },
+    );
+
+    const handler = nudges[0];
+    handler?.();
+    vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.retryGapMs);
+    handler?.();
+    vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.retryGapMs);
+    handler?.();
+    vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.retryGapMs);
+    handler?.();
+    vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.retryGapMs);
+    handler?.();
+
+    expect(status.playerRescues).toBe(PLAYER_RESCUE_CONFIG.maxAttempts);
+  });
+
   it("siguen interrogando aunque la respuesta amanezca limpia: el muro puede llegar tarde", () => {
     const status = rescueStatusSeed();
     const attempt = vi.fn();

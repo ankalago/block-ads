@@ -71,41 +71,49 @@ export const rescueVideoId = (player: RescuePlayer): string | undefined => {
 };
 
 /**
+ * Suscripción a los “nudges” que disparan una inspección inmediata fuera de la cadena de timers:
+ * el tab vuelve a estar visible, el `<video>` intenta reproducirse. La medición en Chrome real lo
+ * exigió: los tabs en segundo plano congelan los timers por completo y el muro llega justo después
+ * de la última lectura posible.
+ */
+export type NudgeSubscribe = (handler: () => void) => void;
+
+/**
  * Interroga al player a intervalos acotados durante toda la ventana de vigía: el muro puede llegar
- * tarde (la medición en vivo lo comprobó: respuesta limpia durante los primeros 8 s, muro minutos
+ * tarde (la medición en vivo lo comprobó: respuesta limpia durante los primeros segundos, muro
  * después) y una respuesta limpia temprana no autoriza a dejar de mirar. La ventana arranca cuando
  * el player se ve por primera vez (`watchMs`, minutos — los ticks en segundo plano disparan ~1/min
  * y alcanzan) con un techo absoluto desde la instalación (`absoluteMs`). Nunca pasa del máximo de
  * rescates ni repite dentro de la espera entre intentos. Los métodos del player son código de la
  * página: una excepción se cuenta y no mata la vigía.
+ *
+ * Los nudges inyectados (foco, play) inspeccionan FUERA de la ventana: el tab congelado no debe
+ * impedir el rescate cuando el usuario vuelve; el techo real es el máximo de rescates.
  */
 export const startPlayerRescue = (
   queryPlayer: () => RescuePlayer | undefined,
   attempt: (player: RescuePlayer, videoId: string) => void,
   status: RescueStatus,
   config: PlayerRescueConfig = PLAYER_RESCUE_CONFIG,
+  subscribeToNudges?: NudgeSubscribe,
 ): void => {
   const installedAt = Date.now();
   const state = { lastAttemptAt: -config.retryGapMs, firstSeenAt: -1 };
-  const tick = (): void => {
+
+  const inspect = (): void => {
     const player = queryPlayer();
     if (player !== undefined) {
       status.rescuePlayerSeen = true;
       if (state.firstSeenAt < 0) state.firstSeenAt = Date.now();
     }
 
-    const now = Date.now();
-    const watchExpired =
-      state.firstSeenAt < 0 ? now - installedAt >= config.absoluteMs : now - state.firstSeenAt >= config.watchMs;
-    if (watchExpired) return;
-
     status.rescueTicks += 1;
     try {
       const videoId = player === undefined ? undefined : rescueVideoId(player);
       if (player !== undefined && videoId !== undefined) {
         status.rescueWallSeen = true;
-        if (status.playerRescues < config.maxAttempts && now - state.lastAttemptAt >= config.retryGapMs) {
-          state.lastAttemptAt = now;
+        if (status.playerRescues < config.maxAttempts && Date.now() - state.lastAttemptAt >= config.retryGapMs) {
+          state.lastAttemptAt = Date.now();
           status.playerRescues += 1;
           attempt(player, videoId);
         }
@@ -113,8 +121,17 @@ export const startPlayerRescue = (
     } catch {
       status.rescueErrors += 1;
     }
+  };
+
+  const tick = (): void => {
+    inspect();
+    const now = Date.now();
+    const watchExpired =
+      state.firstSeenAt < 0 ? now - installedAt >= config.absoluteMs : now - state.firstSeenAt >= config.watchMs;
+    if (watchExpired) return;
     setTimeout(tick, config.intervalMs);
   };
 
   setTimeout(tick, config.intervalMs);
+  subscribeToNudges?.(inspect);
 };

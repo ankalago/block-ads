@@ -16,7 +16,7 @@ const makePlayer = (wall, videoId = "dQw4w9WgXcQ") => ({
   loadVideoById: undefined,
 });
 
-const run = (name, { wallFromStart, lateWall, throwingUntil, neverSeen }) => {
+const run = (name, { wallFromStart, lateWall, wallAfter, throwingUntil, neverSeen, freezeAt, nudgeAt }) => {
   const pending = [];
   let t = 0;
   const rescues = [];
@@ -28,12 +28,21 @@ const run = (name, { wallFromStart, lateWall, throwingUntil, neverSeen }) => {
   VirtualDate.now = () => epochBase + t;
   VirtualDate.prototype = Date.prototype;
 
+  // El muro real puede llegar después de la última lectura posible: los nudges (foco, play)
+  // tienen que rescatarlo aunque los timers estén congelados o la ventana vencida. El muro está
+  // activo desde el arranque (wallFromStart) o cuando llega junto con el player tardío (lateWall);
+  // wallAfter lo enciende más tarde sobre un player ya visible y limpio.
+  const wall = { on: Boolean(wallFromStart) || lateWall !== undefined };
+  const nudges = [];
+
   const cleanPlayer = makePlayer(false);
   cleanPlayer.loadVideoById = (id) => rescues.push({ at: t, id });
+  const walledPlayer = makePlayer(true);
+  walledPlayer.loadVideoById = (id) => rescues.push({ at: t, id });
   const throwingPlayer = {
     getPlayerResponse: () => {
       if (t <= broken.until) throw new Error("boom en el player");
-      return makePlayer(true).getPlayerResponse();
+      return (wall.on ? walledPlayer : cleanPlayer).getPlayerResponse();
     },
     loadVideoById: (id) => rescues.push({ at: t, id }),
   };
@@ -43,7 +52,12 @@ const run = (name, { wallFromStart, lateWall, throwingUntil, neverSeen }) => {
       if (id !== "movie_player" || neverSeen) return null;
       if (lateWall && t < lateWall) return null;
       if (broken.until > 0 && t <= broken.until) return throwingPlayer;
+      if (wallAfter !== undefined) return wall.on ? throwingPlayer : cleanPlayer;
       return wallFromStart || lateWall ? throwingPlayer : cleanPlayer;
+    },
+    visibilityState: "visible",
+    addEventListener: (type, handler) => {
+      nudges.push({ type, handler });
     },
   };
 
@@ -73,6 +87,14 @@ const run = (name, { wallFromStart, lateWall, throwingUntil, neverSeen }) => {
   vm.runInContext(code, sandbox);
 
   for (t = 0; t <= 120000; t += 250) {
+    if (wallAfter !== undefined && t >= wallAfter) wall.on = true;
+    if (freezeAt !== undefined && t === freezeAt) {
+      pending.length = 0; // el tab congeló los timers: no vuelve a dispararse ninguno
+    }
+    if (nudgeAt !== undefined && t === nudgeAt) {
+      const visibility = nudges.find((n) => n.type === "visibilitychange");
+      visibility?.handler(); // el usuario vuelve al tab: nudge fuera de la cadena de timers
+    }
     const due = pending.filter((p) => p.at <= t);
     for (const p of due) {
       pending.splice(pending.indexOf(p), 1);
@@ -91,3 +113,12 @@ run("D player que nunca aparece", { neverSeen: true });
 // El paste real de Paul (13e0673): respuesta limpia durante la primera vigía, muro minutos
 // después. La vigía de minutos tiene que cazarlo.
 run("E muro que llega a los 20 s tras una respuesta limpia", { lateWall: 20000 });
+// El paste de Paul con la vigía de minutos: la vigía hizo 5 lecturas limpias y los timers
+// congelaron para siempre; el muro llegó después y el usuario volvió al tab. El nudge de foco
+// tiene que rescatarlo aunque la cadena de timers esté muerta.
+run("F timers congelados a los 5 s, muro a los 10 s, foco a los 30 s", {
+  wallFromStart: false,
+  wallAfter: 10000,
+  freezeAt: 5000,
+  nudgeAt: 30000,
+});
