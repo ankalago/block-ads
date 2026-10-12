@@ -917,3 +917,30 @@ sesión medida (escenario E: 19 ticks limpios, muro a los 20 s, rescate inmediat
 
 Pregunta abierta: si el muro es fabricado por el cliente tras una señal (¿`pagead/id`?), bloquear la
 señal con DNR podría impedirlo de raíz; eso queda para la próxima decisión con evidencia.
+
+## §23. Los timers congelan: la inspección pasa a ser por eventos (2025-10-12)
+
+Segunda corrida con la vigía de minutos (ca2740e, paste tras recargar e4dd88f):
+`rescueTicks: 5` con intervalo de 1 s — cinco lecturas limpias y **ningún tick volvió a disparar
+jamás**. Con plazos de 10/15 minutos, el deadline no explica la muerte: `rescueErrors: 0` tampoco.
+Conclusión medida: **Chrome congela por completo los timers de un tab en segundo plano** (Memory
+Saver / oclusión) — no los estrangula a ~1/min: los detiene. El muro volvió a llegar ~5 s después
+de la última lectura, invisible para la cadena muerta; el patrón de §22 se repite a otra escala.
+
+Lección estructural: para un muro que llega cuando nadie mira, una ventana más larga no alcanza —
+la inspección tiene que dispararse **cuando el usuario vuelve**. Corrección (ca2740e, tests
+118→121): `inspect` se separa de la cadena de timers y un gancho `NudgeSubscribe` dispara
+inspecciones inmediatas fuera de la ventana (el techo real es `maxAttempts: 2` con `retryGapMs`).
+El wiring real suscribe dos nudges: `visibilitychange` (solo al volver a ser visible) y `play`
+en fase de captura — `play` no burbujea y en captura el document lo recibe igual. Así, volver al
+tab o apretar play interroga al player al acto, con los timers congelados o la ventana vencida.
+
+El humo de vm replica la sesión exacta (escenario F): timers congelados a los 5 s (`pending`
+vacía y nunca más repuesta), muro a los 10 s, foco a los 30 s → rescate en el segundo exacto del
+foco, `rescueTicks: 5` + 1 del nudge. Además el arnés corrigió una regresión propia: el muro de
+los escenarios B/E seguía a `wall.on` y quedó limpio para siempre hasta atarlo a `lateWall`.
+
+Predicción falsable para la próxima corrida: con el muro presente al volver al tab, el paste debe
+mostrar `playerRescues ≥ 1` con `rescueTicks` mayor que 5 (los nudges cuentan como ticks) y el
+video reiniciado limpio. Si el tab queda en primer plano desde la carga, la cadena de timers de
+1 s lo caza sin nudges.
