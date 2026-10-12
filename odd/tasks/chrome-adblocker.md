@@ -511,3 +511,12 @@ build, a field frozen at ~5s proves the chain died there; `pointerdown` in captu
 visibilitychange and play as a nudge, so any user gesture interrogates the player while the tab
 stays occluded. Smoke scenarios F/G cover both routes past a frozen chain. Gate green
 (extension 122, core 145, rules 8). Evidence: §24.
+
+## Telemetry goes always-on: an undefined ESTADO now proves injection failure (1a674a8 -> 4503954)
+
+Paul's probe returned ESTADO/RED undefined with the wall present. The opt-in URL token is lost
+across YouTube's internal navigations, making a tokenless paste indistinguishable from a script
+that never injected. Fix: publish `__blockAdsInnerTube` and `__blockAdsNetwork` on every page;
+remove `shouldPublishStatus`/`DEBUG_PARAM` and their predicate tests (122 -> 118). The vm smoke
+runs with an empty query string and throws if the telemetry is absent. Gate green (extension
+118, core 145, rules 8). Evidence: §25.
