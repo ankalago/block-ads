@@ -18,7 +18,18 @@ export type RescuePlayer = {
   getPlayerResponse?: () => JsonValue | undefined;
   getVideoData?: () => JsonValue | undefined;
   loadVideoById?: (videoId: string) => void;
+  classList?: { readonly contains: (token: string) => boolean };
+  querySelector?: (selector: string) => unknown;
 };
+
+const AD_SHOWING_CLASSES: readonly string[] = ["ad-showing", "ad-interrupting"];
+
+const SKIP_BUTTON_SELECTORS: readonly string[] = [
+  ".ytp-ad-skip-button",
+  ".ytp-ad-skip-button-modern",
+  ".ytp-skip-ad-button",
+  ".ytp-ad-overlay-close-button",
+];
 
 /**
  * Telemetría del rescate, etapa por etapa: el ciclo puede no correr (build viejo), no encontrar al
@@ -55,22 +66,96 @@ declare global {
 const isJsonObject = (value: unknown): value is JsonObject =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
+const nonEmptyString = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+
 const videoIdOfResponse = (response: JsonValue | undefined): string | undefined => {
   if (!isJsonObject(response)) return undefined;
   const details = response.videoDetails;
-  return isJsonObject(details) && typeof details.videoId === "string" ? details.videoId : undefined;
+  return isJsonObject(details) ? nonEmptyString(details.videoId) : undefined;
 };
 
 const videoIdOfData = (data: JsonValue | undefined): string | undefined => {
   if (!isJsonObject(data)) return undefined;
-  return typeof data.video_id === "string" ? data.video_id : undefined;
+  return nonEmptyString(data.video_id);
 };
 
+const PATH_VIDEO_PREFIXES: readonly string[] = ["/shorts/", "/embed/", "/live/"];
+
+/** Extrae el videoId desde `?v=` o rutas `/shorts/`, `/embed/`, `/live/` cuando el muro omite `videoDetails`. */
+export const videoIdOfLocation = (hrefOrSearch?: string): string | undefined => {
+  const fallbackHref = typeof window !== "undefined" ? window.location?.href : undefined;
+  const raw = nonEmptyString(hrefOrSearch ?? fallbackHref);
+  if (raw === undefined) return undefined;
+  try {
+    const url = new URL(raw, "https://www.youtube.com");
+    const fromQuery = nonEmptyString(url.searchParams.get("v"));
+    if (fromQuery !== undefined) return fromQuery;
+
+    const prefix = PATH_VIDEO_PREFIXES.find((candidate) => url.pathname.startsWith(candidate));
+    if (prefix === undefined) return undefined;
+
+    const segment = url.pathname.slice(prefix.length).split("/")[0];
+    return nonEmptyString(segment);
+  } catch {
+    return undefined;
+  }
+};
+
+const knownVideoId = (player: RescuePlayer, locationHref?: string): string | undefined =>
+  videoIdOfResponse(player.getPlayerResponse?.()) ??
+  videoIdOfData(player.getVideoData?.()) ??
+  videoIdOfLocation(locationHref);
+
 /** El video a rescatar solo si la respuesta viva del player trae el muro; si no, `undefined`. */
-export const rescueVideoId = (player: RescuePlayer): string | undefined => {
+export const rescueVideoId = (player: RescuePlayer, locationHref?: string): string | undefined => {
   const response = player.getPlayerResponse?.();
   if (response === undefined || !hasEnforcementWall(response)) return undefined;
-  return videoIdOfResponse(response) ?? videoIdOfData(player.getVideoData?.());
+  return knownVideoId(player, locationHref);
+};
+
+type MutableVideoCandidate = {
+  duration?: unknown;
+  currentTime?: unknown;
+  muted?: unknown;
+};
+
+type ClickableCandidate = {
+  click?: unknown;
+};
+
+const isMutableVideo = (value: unknown): value is MutableVideoCandidate => typeof value === "object" && value !== null;
+
+const isClickable = (value: unknown): value is ClickableCandidate => typeof value === "object" && value !== null;
+
+const fastForwardAdVideo = (video: unknown): void => {
+  if (!isMutableVideo(video)) return;
+  const duration = video.duration;
+  if (typeof duration !== "number" || !Number.isFinite(duration) || duration <= 0) return;
+  video.muted = true;
+  video.currentTime = duration;
+};
+
+const clickSkipButton = (button: unknown): void => {
+  if (!isClickable(button)) return;
+  if (typeof button.click === "function") button.click();
+};
+
+/**
+ * Backstop en el reproductor: si un anuncio instream llega a activarse (`.ad-showing` o
+ * `.ad-interrupting` en `#movie_player`), silencia y adelanta el `<video>` al final y pulsa
+ * cualquier botón de skip disponible. Nunca toca un vídeo orgánico.
+ */
+export const skipActiveAd = (player: RescuePlayer): boolean => {
+  const isAdShowing = AD_SHOWING_CLASSES.some((token) => player.classList?.contains(token) === true);
+  if (!isAdShowing) return false;
+
+  fastForwardAdVideo(player.querySelector?.("video"));
+  SKIP_BUTTON_SELECTORS.forEach((selector) => {
+    clickSkipButton(player.querySelector?.(selector));
+  });
+
+  return true;
 };
 
 /**
@@ -101,7 +186,33 @@ export const startPlayerRescue = (
   subscribeToNudges?: NudgeSubscribe,
 ): void => {
   const installedAt = Date.now();
-  const state = { lastAttemptAt: -config.retryGapMs, firstSeenAt: -1 };
+  const state: { lastAttemptAt: number; firstSeenAt: number; lastVideoId: string | undefined } = {
+    lastAttemptAt: -config.retryGapMs,
+    firstSeenAt: -1,
+    lastVideoId: undefined,
+  };
+
+  const tryRescue = (player: RescuePlayer, videoId: string | undefined): void => {
+    if (videoId === undefined) return;
+    if (status.playerRescues >= config.maxAttempts) return;
+    if (Date.now() - state.lastAttemptAt < config.retryGapMs) return;
+
+    state.lastAttemptAt = Date.now();
+    status.playerRescues += 1;
+    attempt(player, videoId);
+  };
+
+  const inspectPlayer = (player: RescuePlayer): void => {
+    skipActiveAd(player);
+    const currentVideoId = knownVideoId(player);
+    if (currentVideoId !== undefined) state.lastVideoId = currentVideoId;
+
+    const response = player.getPlayerResponse?.();
+    if (response === undefined || !hasEnforcementWall(response)) return;
+
+    status.rescueWallSeen = true;
+    tryRescue(player, currentVideoId ?? state.lastVideoId);
+  };
 
   const inspect = (): void => {
     status.rescueLastAt = Date.now();
@@ -112,16 +223,9 @@ export const startPlayerRescue = (
     }
 
     status.rescueTicks += 1;
+    if (player === undefined) return;
     try {
-      const videoId = player === undefined ? undefined : rescueVideoId(player);
-      if (player !== undefined && videoId !== undefined) {
-        status.rescueWallSeen = true;
-        if (status.playerRescues < config.maxAttempts && Date.now() - state.lastAttemptAt >= config.retryGapMs) {
-          state.lastAttemptAt = Date.now();
-          status.playerRescues += 1;
-          attempt(player, videoId);
-        }
-      }
+      inspectPlayer(player);
     } catch {
       status.rescueErrors += 1;
     }

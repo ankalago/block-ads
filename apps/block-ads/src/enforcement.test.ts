@@ -1,7 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  ABNORMALITY_MARKER,
   ENFORCEMENT_STATUS,
   hasEnforcementWall,
+  installAbnormalityGuard,
+  isAbnormalityCallback,
   neutralizeEnforcement,
   PLAYABILITY_KEY,
   PLAYABLE_STATUS,
@@ -31,19 +34,50 @@ const wallPayload = () => ({
   videoDetails: { videoId: "dQw4w9WgXcQ" },
 });
 
-describe("la regla de enforcement sobre playabilityStatus", () => {
-  it("reescriben el ERROR del muro a OK y sacan errorScreen, conservando el resto", () => {
-    const result = neutralizeEnforcement(wallPayload());
+const auxiliaryPopupPayload = () => ({
+  playabilityStatus: { status: "OK" },
+  videoDetails: { videoId: "dQw4w9WgXcQ" },
+  auxiliaryUi: {
+    messageRenderers: {
+      bkaEnforcementMessageViewModel: {
+        title: "Ad blockers are not allowed on YouTube",
+      },
+      enforcementMessageViewModel: {
+        title: "Ad blockers violate YouTube's Terms of Service",
+      },
+      upsellDialogRenderer: { title: "Premium" },
+    },
+  },
+});
+
+describe("la regla de enforcement sobre respuestas del player", () => {
+  it("conserva intacto un ERROR de enforcement para que el rescate pida un stream sano en vez de dejar pantalla negra", () => {
+    const flagged = wallPayload();
+    const result = neutralizeEnforcement(flagged);
     const playability = playabilityOf(result);
 
-    expect(playability.status).toBe("OK");
-    expect("errorScreen" in playability).toBe(false);
-    expect(playability.miniplayer).toEqual({ miniplayerRenderer: { playbackMode: "PLAYBACK_MODE_ALLOW" } });
-    expect(view(result).videoDetails).toEqual({ videoId: "dQw4w9WgXcQ" });
+    expect(result).toBe(flagged);
+    expect(playability.status).toBe("ERROR");
+    expect(hasEnforcementWall(result)).toBe(true);
   });
 
-  it("devuelven la misma referencia cuando la respuesta no trae muro", () => {
-    const clean = { playabilityStatus: { status: "OK" }, videoDetails: { videoId: "dQw4w9WgXcQ" } };
+  it("elimina bkaEnforcementMessageViewModel y enforcementMessageViewModel de auxiliaryUi en respuestas jugables", () => {
+    const result = neutralizeEnforcement(auxiliaryPopupPayload());
+    const auxiliary = view(view(result).auxiliaryUi);
+    const renderers = view(auxiliary.messageRenderers);
+
+    expect("bkaEnforcementMessageViewModel" in renderers).toBe(false);
+    expect("enforcementMessageViewModel" in renderers).toBe(false);
+    expect(renderers.upsellDialogRenderer).toEqual({ title: "Premium" });
+    expect(playabilityOf(result).status).toBe("OK");
+  });
+
+  it("devuelven la misma referencia cuando la respuesta no trae popup de enforcement en auxiliaryUi", () => {
+    const clean = {
+      playabilityStatus: { status: "OK" },
+      videoDetails: { videoId: "dQw4w9WgXcQ" },
+      auxiliaryUi: { messageRenderers: { upsellDialogRenderer: { title: "Premium" } } },
+    };
 
     expect(neutralizeEnforcement(clean)).toBe(clean);
   });
@@ -65,12 +99,6 @@ describe("la regla de enforcement sobre playabilityStatus", () => {
     expect(neutralizeEnforcement(bare)).toBe(bare);
   });
 
-  it("no reescriben otro estado aunque venga el view model de enforcement", () => {
-    const loginWall = { playabilityStatus: { status: "LOGIN_REQUIRED", errorScreen: enforcementScreen() } };
-
-    expect(neutralizeEnforcement(loginWall)).toBe(loginWall);
-  });
-
   it("dejan pasar valores que no son objetos", () => {
     expect(neutralizeEnforcement(undefined)).toBeUndefined();
     expect(neutralizeEnforcement(null)).toBeNull();
@@ -80,8 +108,16 @@ describe("la regla de enforcement sobre playabilityStatus", () => {
 });
 
 describe("detección del muro de enforcement", () => {
-  it("reconocen un ERROR con el view model de enforcement", () => {
+  it("reconocen un ERROR con enforcementMessageViewModel o bkaEnforcementMessageViewModel", () => {
     expect(hasEnforcementWall(wallPayload())).toBe(true);
+    expect(
+      hasEnforcementWall({
+        playabilityStatus: {
+          status: "ERROR",
+          errorScreen: { bkaEnforcementMessageViewModel: {} },
+        },
+      }),
+    ).toBe(true);
   });
 
   it("descartan respuestas limpias y errores ajenos", () => {
@@ -89,6 +125,39 @@ describe("detección del muro de enforcement", () => {
     expect(hasEnforcementWall({})).toBe(false);
     expect(hasEnforcementWall("hola")).toBe(false);
     expect(hasEnforcementWall(undefined)).toBe(false);
+  });
+});
+
+describe("guardia contra onAbnormalityDetected en Promise.prototype.then", () => {
+  it("identifica callbacks cuya fuente contiene onAbnormalityDetected", () => {
+    const detector = () => "onAbnormalityDetected";
+    const innocent = () => "normalPlayback";
+
+    expect(ABNORMALITY_MARKER).toBe("onAbnormalityDetected");
+    expect(isAbnormalityCallback(detector)).toBe(true);
+    expect(isAbnormalityCallback(innocent)).toBe(false);
+    expect(isAbnormalityCallback(null)).toBe(false);
+    expect(isAbnormalityCallback("onAbnormalityDetected")).toBe(false);
+  });
+
+  it("neutraliza el callback de onAbnormalityDetected en Promise.then sin romper promesas normales", async () => {
+    const onBlocked = vi.fn();
+    installAbnormalityGuard(onBlocked);
+
+    const sideEffect = vi.fn();
+    const abnormalityHandler = () => {
+      sideEffect("onAbnormalityDetected");
+      return "walled";
+    };
+    const normalHandler = (value: number) => value * 2;
+
+    const blockedResult = await Promise.resolve("tick").then(abnormalityHandler);
+    const normalResult = await Promise.resolve(21).then(normalHandler);
+
+    expect(sideEffect).not.toHaveBeenCalled();
+    expect(blockedResult).toBeUndefined();
+    expect(onBlocked).toHaveBeenCalledTimes(1);
+    expect(normalResult).toBe(42);
   });
 });
 

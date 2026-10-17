@@ -23,19 +23,14 @@ Hechos de Chrome citados de la doc oficial (2026-10-06), no de memoria:
    `chrome.*`), no se evalúa código desde datos.
 3. **Prohibido `eval` / `new Function`** en el MAIN world: la CSP de YouTube lo bloquea y sería
    un vector de inyección. El parche envuelve `fetch` y `XMLHttpRequest` con código estático.
-4. **Neutralizar, no borrar** (revierte la decisión §4 anterior, 2026-10-08). Las claves de
-   anuncio de las respuestas JSON de `/youtubei/v1/player` y `/next` —`adPlacements`, `adSlots`,
-   `playerAds` y ahora también `adBreakHeartbeatParams`— **permanecen presentes** con el valor vacío
-   de su propio tipo runtime (`[]`, `{}`, `""`). Borrarlas producía una response internamente
-   inconsistente: `adPlacements` ausente con un heartbeat de 8 caracteres, que el player lee como
-   "un bloqueador me quitó los anuncios" en vez de "no hay ad break programado`. Ver
-   `youtube-evidence.md` §15.
+4. **Neutralizar claves de anuncio y preservar `adBreakHeartbeatParams`.** Las claves de
+   anuncio de las respuestas JSON de `/youtubei/v1/player`, `/youtubei/v1/next` y
+   `/youtubei/v1/get_watch` —`adPlacements`, `adSlots` y `playerAds`— **permanecen presentes**
+   con el valor vacío de su propio tipo runtime (`[]`, `{}`, `""`). `adBreakHeartbeatParams` se
+   conserva intacto (aparece incluso en respuestas sin anuncios y tocarlo reconstruye todas las
+   respuestas limpias e infla `adsFound`). Ver `youtube-evidence.md` §26.
    - Fallback: una clave neutralizable cuyo valor sea `number`, `boolean` o `null` sí se elimina
      (no hay vacío honesto); está pinneado por test.
-   - La justificación anterior ("borrar `adBreakHeartbeatParams` deja el reproductor no
-     reproducible") era una suposición de reconocimiento, no una medición. Si la próxima medición
-     muestra el video efectivamente no reproducible con heartbeat vacío, se devuelve
-     `adBreakHeartbeatParams` al conjunto protegido y se mantiene la neutralización del resto.
 5. **Nada de accesorio permanente en un global de la página.** El primer `ytInitialPlayerResponse`
    llega serializado en el HTML (`var ytInitialPlayerResponse = {…}`), así que la poda de red no lo
    ve y hay que interceptarlo. Un getter/setter que queda instalado es una huella detectable con

@@ -11,21 +11,14 @@
 ||youtube.com/get_midroll_info$xmlhttprequest
 
 ! ---------------------------------------------------------------------------
-! Evidencia §6: hosts publicitarios observados en la sesión real.
-!   pagead2.googlesyndication.com  /activeview_ext
-!   ade.googlesyndication.com      /ddm/activity_ext/dc_pubid=…
-! domainAnchor sin tipo de recurso: Chrome excluye main_frame por defecto, de modo
-! que tampoco bloquean la navegación de documento.
-! ---------------------------------------------------------------------------
-||pagead2.googlesyndication.com^
-||ade.googlesyndication.com^
-
-! ---------------------------------------------------------------------------
-! NO VERIFICADO EN ESTA SESIÓN: conocimiento general, no observado en el tráfico
-! real de §6 (que no vio doubleclick.net ni googleadservices.com).
+! Nota sobre ActiveView / canary: bloquear pagead2.googlesyndication.com,
+! ade.googlesyndication.com o googleadservices.com con DNR devuelve
+! net::ERR_BLOCKED_BY_CLIENT en los pings de integridad del player y dispara
+! onAbnormalityDetected (el muro de enforcement, §9 y §11). La neutralización de
+! adPlacements/adSlots/playerAds impide programar el corte de anuncios sin delatar
+! al cliente por fallo de red.
 ! ---------------------------------------------------------------------------
 ||doubleclick.net^
-||googleadservices.com^
 
 ! ---------------------------------------------------------------------------
 ! Evidencia (Chrome real, extensión sin empaquetar): el dump de peticiones
@@ -51,5 +44,5 @@
 youtube.com##ytd-ad-slot-renderer
 youtube.com##ytd-in-feed-ad-layout-renderer
 youtube.com###masthead-ad
-youtube.com##video-ads ytp-ad-module
-youtube.com##ytp-ad-progress-list
+youtube.com##.video-ads.ytp-ad-module
+youtube.com##.ytp-ad-progress-list

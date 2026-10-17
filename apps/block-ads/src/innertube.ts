@@ -1,4 +1,4 @@
-import { hasEnforcementWall, neutralizeEnforcement } from "./enforcement.ts";
+import { installAbnormalityGuard, neutralizeEnforcement } from "./enforcement.ts";
 import { NEUTRALIZED_KEYS, PLAYER_RESCUE_CONFIG, PRUNE_ENDPOINTS, PRUNE_RULES } from "./innertube.config.ts";
 import { PLAYER_ELEMENT_ID, type RescueStatus, rescueStatusSeed, startPlayerRescue } from "./player-rescue.ts";
 
@@ -462,10 +462,12 @@ const healRaw = (
 ): void => {
   if (isJsonObject(raw)) {
     markAdsFound(network, countAdKeys(raw, keys));
-    if (hasEnforcementWall(raw)) status.wallRewritten = true;
   }
+  const adPruned = initialResponseValue(raw, keys);
+  const restored = neutralizeEnforcement(adPruned);
+  if (restored !== adPruned) status.wallRewritten = true;
 
-  healOrReport(host, neutralizeEnforcement(initialResponseValue(raw, keys)), status);
+  healOrReport(host, restored, status);
 };
 
 /**
@@ -523,6 +525,7 @@ export const installInnerTubePatch = (): CarrierStatus => {
 
   const network = networkStatusSeed();
 
+  installAbnormalityGuard(() => markEnforcementRewritten(network));
   installFetchPatch(network);
   installXhrPatch(network);
 
@@ -552,6 +555,7 @@ export const installInnerTubePatch = (): CarrierStatus => {
         // `play` no burbujea; en captura el document lo recibe igual. Cualquier gesto del usuario
         // (pointerdown en captura) también interroga: un tab oculto puede congelar los timers
         // aunque el usuario esté tocando la página o la pared.
+        document.addEventListener("DOMContentLoaded", handler);
         document.addEventListener("play", handler, true);
         document.addEventListener("pointerdown", handler, true);
       },

@@ -5,7 +5,9 @@ import {
   type RescuePlayer,
   rescueStatusSeed,
   rescueVideoId,
+  skipActiveAd,
   startPlayerRescue,
+  videoIdOfLocation,
 } from "./player-rescue.ts";
 
 const wallResponse = (videoId?: string) => ({
@@ -40,6 +42,20 @@ describe("detección del video a rescatar", () => {
     };
 
     expect(rescueVideoId(player)).toBe("3g4S04DJPYQ");
+  });
+
+  it("ignoran un video_id vacío del player en error y caen a la URL (?v=, /shorts/, /embed/)", () => {
+    const playerWithEmptyData: RescuePlayer = {
+      getPlayerResponse: () => ({
+        playabilityStatus: { status: "ERROR", errorScreen: { enforcementMessageViewModel: {} } },
+      }),
+      getVideoData: () => ({ video_id: "" }),
+    };
+
+    expect(rescueVideoId(playerWithEmptyData, "https://www.youtube.com/watch?v=dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
+    expect(videoIdOfLocation("https://www.youtube.com/shorts/abc123XYZ")).toBe("abc123XYZ");
+    expect(videoIdOfLocation("https://www.youtube.com/embed/xyz987ABC")).toBe("xyz987ABC");
+    expect(videoIdOfLocation("https://www.youtube.com/")).toBeUndefined();
   });
 
   it("no rescatan una respuesta limpia ni un error ajeno al muro", () => {
@@ -297,6 +313,74 @@ describe("el ciclo de rescate acotado", () => {
 
     expect(status.rescuePlayerSeen).toBe(true);
     expect(status.rescueWallSeen).toBe(false);
+  });
+
+  it("marcan rescueWallSeen y rescatan usando el videoId recordado de ticks limpios previos cuando el muro real borra videoDetails", () => {
+    const status = rescueStatusSeed();
+    const attempt = vi.fn();
+    const state = { walled: false };
+    const player: RescuePlayer = {
+      getPlayerResponse: () =>
+        state.walled
+          ? { playabilityStatus: { status: "ERROR", errorScreen: { enforcementMessageViewModel: {} } } }
+          : { playabilityStatus: { status: "OK" }, videoDetails: { videoId: "dQw4w9WgXcQ" } },
+      getVideoData: () => ({ video_id: "" }),
+    };
+
+    startPlayerRescue(() => player, attempt, status);
+
+    vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.intervalMs);
+    expect(status.rescueWallSeen).toBe(false);
+    expect(status.playerRescues).toBe(0);
+
+    state.walled = true;
+    vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.intervalMs);
+    expect(status.rescueWallSeen).toBe(true);
+    expect(status.playerRescues).toBe(1);
+    expect(attempt).toHaveBeenCalledWith(player, "dQw4w9WgXcQ");
+  });
+
+  it("marcan rescueWallSeen en verdadero aunque ninguna fuente exponga todavía un videoId", () => {
+    const status = rescueStatusSeed();
+    const attempt = vi.fn();
+    const orphanWallPlayer: RescuePlayer = {
+      getPlayerResponse: () => ({
+        playabilityStatus: { status: "ERROR", errorScreen: { enforcementMessageViewModel: {} } },
+      }),
+      getVideoData: () => ({ video_id: "" }),
+    };
+
+    startPlayerRescue(() => orphanWallPlayer, attempt, status);
+    vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.intervalMs);
+
+    expect(status.rescueWallSeen).toBe(true);
+    expect(status.playerRescues).toBe(0);
+  });
+
+  it("saltan al final del anuncio y pulsan el botón de skip cuando el player tiene ad-showing", () => {
+    const video = { duration: 15, currentTime: 1, muted: false };
+    const skipButton = { click: vi.fn() };
+    const adPlayer: RescuePlayer = {
+      classList: { contains: (token) => token === "ad-showing" },
+      querySelector: (selector) => {
+        if (selector === "video") return video;
+        if (selector === ".ytp-ad-skip-button-modern") return skipButton;
+        return null;
+      },
+    };
+    const organicPlayer: RescuePlayer = {
+      classList: { contains: () => false },
+      querySelector: () => video,
+    };
+
+    expect(skipActiveAd(organicPlayer)).toBe(false);
+    expect(video.currentTime).toBe(1);
+    expect(video.muted).toBe(false);
+
+    expect(skipActiveAd(adPlayer)).toBe(true);
+    expect(video.muted).toBe(true);
+    expect(video.currentTime).toBe(15);
+    expect(skipButton.click).toHaveBeenCalledTimes(1);
   });
 
   it("fijan el id del elemento del player para que no se renombre por accidente", () => {

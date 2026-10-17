@@ -48,13 +48,13 @@ const unsupportedReasons = (): readonly UnsupportedReason[] =>
 /** Único motivo tolerado: cabeceras (`comment`) y líneas en blanco (`empty`). */
 const EXPECTED_UNSUPPORTED_REASONS: readonly UnsupportedReason[] = ["comment", "empty"];
 
-/** Selectores verificados en `odd/specs/youtube-evidence.md` §3; ninguno inventado. */
+/** Selectores verificados en `odd/specs/youtube-evidence.md` §3; las clases del player llevan punto. */
 const VERIFIED_SELECTORS: readonly string[] = [
   "ytd-ad-slot-renderer",
   "#masthead-ad",
   "ytd-in-feed-ad-layout-renderer",
-  "video-ads ytp-ad-module",
-  "ytp-ad-progress-list",
+  ".video-ads.ytp-ad-module",
+  ".ytp-ad-progress-list",
 ];
 
 describe("listas de reglas del paquete @block-ads/rules", () => {
@@ -78,10 +78,25 @@ describe("listas de reglas del paquete @block-ads/rules", () => {
     expect(unexpected).toEqual([]);
   });
 
-  it("solo usa selectores cosméticos verificados", () => {
-    const unverified = cosmeticSelectors().filter((selector) => !VERIFIED_SELECTORS.includes(selector));
+  it("solo usa selectores cosméticos verificados y con prefijo de clase en nodos del player", () => {
+    const selectors = cosmeticSelectors();
+    const unverified = selectors.filter((selector) => !VERIFIED_SELECTORS.includes(selector));
 
     expect(unverified).toEqual([]);
+    expect(selectors).toContain(".video-ads.ytp-ad-module");
+    expect(selectors).toContain(".ytp-ad-progress-list");
+  });
+
+  it("no bloquea dominios enteros de telemetría ActiveView (googlesyndication/googleadservices) que disparan el muro en cliente", () => {
+    const rules = compiledRules();
+    const baitBlocks = rules.filter(
+      (rule) =>
+        rule.action.type === "block" &&
+        (rule.condition.urlFilter?.includes("googlesyndication.com") === true ||
+          rule.condition.urlFilter?.includes("googleadservices.com") === true),
+    );
+
+    expect(baitBlocks).toEqual([]);
   });
 
   it("bloquea get_midroll_info solo como xmlhttprequest, nunca como documento", () => {

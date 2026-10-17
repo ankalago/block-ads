@@ -36,6 +36,7 @@ const carrierDescriptor = (host: CarrierHost) => {
 
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?key=AIzaSyFixture";
 const NEXT_URL = "https://www.youtube.com/youtubei/v1/next?key=AIzaSyFixture";
+const GET_WATCH_URL = "https://www.youtube.com/youtubei/v1/get_watch?key=AIzaSyFixture";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -72,12 +73,33 @@ describe("neutralización de respuestas de InnerTube", () => {
     expect(neutralized.playerAds).toEqual([]);
   });
 
-  it("vacía adBreakHeartbeatParams a string vacío, también anidado", () => {
+  it("conserva intacto adBreakHeartbeatParams (presente incluso en vídeos sin anuncios)", () => {
     const neutralized = view(pruneResponsePayload(PLAYER_URL, playerResponse()));
 
-    expect("adBreakHeartbeatParams" in neutralized).toBe(true);
-    expect(neutralized.adBreakHeartbeatParams).toBe("");
-    expect(key(key(neutralized.playerConfig, "adsConfig"), "adBreakHeartbeatParams")).toBe("");
+    expect(neutralized.adBreakHeartbeatParams).toBe("heartbeat-token");
+    expect(key(key(neutralized.playerConfig, "adsConfig"), "adBreakHeartbeatParams")).toBe("nested-heartbeat");
+  });
+
+  it("neutraliza playerResponse anidado en respuestas de /youtubei/v1/get_watch", () => {
+    const payload = [
+      {
+        playerResponse: {
+          adPlacements: [{ adPlacementRenderer: {} }],
+          adSlots: [{ adSlotRenderer: {} }],
+          playerAds: [{ playerLegacyDesktopWatchAdsRenderer: {} }],
+          videoDetails: { videoId: "dQw4w9WgXcQ" },
+        },
+      },
+    ];
+
+    const neutralized = pruneResponsePayload(GET_WATCH_URL, payload);
+    const first = Array.isArray(neutralized) ? view(neutralized[0]) : {};
+    const inner = view(first.playerResponse);
+
+    expect(inner.adPlacements).toEqual([]);
+    expect(inner.adSlots).toEqual([]);
+    expect(inner.playerAds).toEqual([]);
+    expect(inner.videoDetails).toEqual({ videoId: "dQw4w9WgXcQ" });
   });
 
   it("conserva intactas las claves orgánicas de la respuesta del player", () => {
@@ -101,7 +123,7 @@ describe("neutralización de respuestas de InnerTube", () => {
     expect(key(neutralized.contents, "adSlots")).toEqual([]);
     expect(key(neutralized.contents, "tabs")).toEqual([{ title: "Home" }]);
     expect(neutralized.onResponseReceivedActions).toEqual([{ adPlacements: [] }]);
-    expect(neutralized.adBreakHeartbeatParams).toBe("");
+    expect(neutralized.adBreakHeartbeatParams).toBe("hb");
   });
 
   it("elimina una clave de anuncio cuyo valor no tiene vacío propio (number, boolean o null)", () => {
@@ -112,7 +134,7 @@ describe("neutralización de respuestas de InnerTube", () => {
     expect("playerAds" in neutralized).toBe(false);
   });
 
-  it("neutraliza de forma pura con el vacío del tipo runtime y descarta el resto", () => {
+  it("neutraliza de forma pura con el vacío del tipo runtime y conserva claves orgánicas", () => {
     const source = {
       adPlacements: [{ ad: true }],
       adSlots: 7,
@@ -124,7 +146,7 @@ describe("neutralización de respuestas de InnerTube", () => {
     const result = view(neutralizeAdKeys(source, NEUTRALIZED_KEYS));
 
     expect(result.adPlacements).toEqual([]);
-    expect(result.adBreakHeartbeatParams).toBe("");
+    expect(result.adBreakHeartbeatParams).toBe("tok");
     expect("adSlots" in result).toBe(false);
     expect("playerAds" in result).toBe(false);
     expect(key(result.videoDetails, "title")).toBe("Fixture");
@@ -181,9 +203,10 @@ describe("neutralización de respuestas de InnerTube", () => {
     expect(pruneResponsePayload("https://www.youtube.com/watch?v=abc", payload)).toBe(payload);
   });
 
-  it("reconoce la ruta del player y la de next con URL relativa o absoluta", () => {
+  it("reconoce las rutas de player, next y get_watch con URL relativa o absoluta", () => {
     expect(isPrunedEndpoint("/youtubei/v1/player")).toBe(true);
     expect(isPrunedEndpoint("https://www.youtube.com/youtubei/v1/next?key=x")).toBe(true);
+    expect(isPrunedEndpoint("https://www.youtube.com/youtubei/v1/get_watch?key=x")).toBe(true);
     expect(isPrunedEndpoint("https://www.youtube.com/youtubei/v1/playerX")).toBe(false);
     expect(isPrunedEndpoint("https://example.com/watch?v=/youtubei/v1/player")).toBe(false);
   });
@@ -223,13 +246,13 @@ describe("neutralización del carrier inline de la primera respuesta", () => {
     adBreakHeartbeatParams: "Q0FBJTNE",
   });
 
-  it("devuelven el carrier con las claves de anuncio presentes y vacías", () => {
+  it("devuelven el carrier con las claves de anuncio presentes y vacías, preservando heartbeat", () => {
     const result = initialResponseValue(carrier(), NEUTRALIZED_KEYS);
 
     expect(key(result, "adPlacements")).toEqual([]);
     expect(key(result, "playerAds")).toEqual([]);
     expect(key(result, "adSlots")).toEqual([]);
-    expect(key(result, "adBreakHeartbeatParams")).toBe("");
+    expect(key(result, "adBreakHeartbeatParams")).toBe("Q0FBJTNE");
     expect(key(result, "videoDetails")).toEqual({ videoId: "dQw4w9WgXcQ" });
   });
 
@@ -256,7 +279,7 @@ describe("neutralización del carrier inline de la primera respuesta", () => {
 
     const seen = host.ytInitialPlayerResponse;
     expect(key(seen, "playerAds")).toEqual([]);
-    expect(key(seen, "adBreakHeartbeatParams")).toBe("");
+    expect(key(seen, "adBreakHeartbeatParams")).toBe("Q0FBJTNE");
   });
 
   it("neutralizan también el valor que ya estaba asignado cuando la propiedad existía como dato", () => {
@@ -312,7 +335,17 @@ describe("el muro de enforcement en el carrier inline", () => {
     },
   });
 
-  it("reescriben el muro del carrier en la trampa y lo marcan en el estado", () => {
+  const popupCarrier = () => ({
+    videoDetails: { videoId: "dQw4w9WgXcQ" },
+    playabilityStatus: { status: "OK" },
+    auxiliaryUi: {
+      messageRenderers: {
+        bkaEnforcementMessageViewModel: { title: "Allow YouTube Ads" },
+      },
+    },
+  });
+
+  it("conservan intacto el ERROR del muro en el carrier para que player-rescue recargue un stream sano", () => {
     const host: CarrierHost = {};
     const status = carrierStatusSeed();
     const network = networkStatusSeed();
@@ -321,9 +354,23 @@ describe("el muro de enforcement en el carrier inline", () => {
     host.ytInitialPlayerResponse = wallCarrier();
 
     const playability = view(key(host.ytInitialPlayerResponse, "playabilityStatus"));
+    expect(status.wallRewritten).toBe(false);
+    expect(playability.status).toBe("ERROR");
+    expect("errorScreen" in playability).toBe(true);
+  });
+
+  it("limpian el popup bkaEnforcementMessageViewModel en auxiliaryUi y marcan wallRewritten", () => {
+    const host: CarrierHost = {};
+    const status = carrierStatusSeed();
+    const network = networkStatusSeed();
+
+    shadowInlineCarrier(host, NEUTRALIZED_KEYS, status, network);
+    host.ytInitialPlayerResponse = popupCarrier();
+
+    const auxiliary = view(key(host.ytInitialPlayerResponse, "auxiliaryUi"));
+    const renderers = view(auxiliary.messageRenderers);
     expect(status.wallRewritten).toBe(true);
-    expect(playability.status).toBe("OK");
-    expect("errorScreen" in playability).toBe(false);
+    expect("bkaEnforcementMessageViewModel" in renderers).toBe(false);
   });
 
   it("no marcan el muro en un carrier limpio", () => {
@@ -478,7 +525,7 @@ describe("el carrier inline vuelve a ser data property después de neutralizarlo
     };
 
     expect(key(host.ytInitialPlayerResponse, "adPlacements")).toEqual([]);
-    expect(key(host.ytInitialPlayerResponse, "adBreakHeartbeatParams")).toBe("");
+    expect(key(host.ytInitialPlayerResponse, "adBreakHeartbeatParams")).toBe("abc");
     expect(carrierDescriptor(host)).toEqual(varShape);
   });
 
@@ -613,10 +660,10 @@ describe("telemetría de red para distinguir un parche muerto de un bypass", () 
 });
 
 describe("conteo de anuncios reales antes de neutralizar", () => {
-  it("cuentan los elementos de cada clave de anuncio llena, incluidas las anidadas", () => {
+  it("cuentan los elementos de cada clave de anuncio llena sin contar adBreakHeartbeatParams", () => {
     const found = countAdKeys(playerResponse(), NEUTRALIZED_KEYS);
 
-    expect(found).toEqual({ adPlacements: 1, adSlots: 1, playerAds: 1, adBreakHeartbeatParams: 2 });
+    expect(found).toEqual({ adPlacements: 1, adSlots: 1, playerAds: 1 });
   });
 
   it("no registran nada cuando las claves ya vienen vacías", () => {

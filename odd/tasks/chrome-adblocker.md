@@ -520,3 +520,43 @@ that never injected. Fix: publish `__blockAdsInnerTube` and `__blockAdsNetwork` 
 remove `shouldPublishStatus`/`DEBUG_PARAM` and their predicate tests (122 -> 118). The vm smoke
 runs with an empty query string and throws if the telemetry is absent. Gate green (extension
 118, core 145, rules 8). Evidence: §25.
+
+## Root-cause audit and full YouTube blocker fix (4503954 -> this unit)
+
+Cross-checking Paul's black-screen report (`"no se ve ni se escucha nada"`) and the 54-tick live
+paste (`rescueTicks: 54, rescueWallSeen: false, playerRescues: 0` while `LIVE` showed `ERROR` +
+`enforcementMessageViewModel`) exposed six compounding defects in the previous implementation:
+
+1. **`neutralizeEnforcement` caused the black screen and blinded `player-rescue`:** rewriting
+   `playabilityStatus.status` from `"ERROR"` to `"OK"` and deleting `errorScreen` on a
+   server-flagged response left `#movie_player` trying to play a poisoned/empty SABR stream (black
+   screen, no audio/video) AND made `hasEnforcementWall(player.getPlayerResponse())` return
+   `false`, so `player-rescue` never called `loadVideoById`. Fix: preserve `playabilityStatus` on
+   real `ERROR` walls so `player-rescue` immediately reloads a clean stream, and strip only
+   `bkaEnforcementMessageViewModel` / `enforcementMessageViewModel` inside
+   `auxiliaryUi.messageRenderers` on playable responses.
+2. **Client-side `onAbnormalityDetected` trigger unguarded:** the late wall (~50-55s,
+   `enforcement: 0`, `wallRewritten: false`) is triggered by YouTube's client detector inside a
+   `Promise.prototype.then` callback containing `"onAbnormalityDetected"`. Fix:
+   `installAbnormalityGuard` proxies `Promise.prototype.then` and replaces matching callbacks with
+   a no-op at `document_start`.
+3. **`rescueVideoId` returned `undefined` on real walls and hid `rescueWallSeen`:** a real YouTube
+   `ERROR` response has no `videoDetails.videoId`, and `getVideoData()` returns `{ video_id: "" }`.
+   Because `rescueWallSeen = true` was gated inside `if (videoId !== undefined)`, `rescueWallSeen`
+   stayed `false` and `playerRescues` stayed `0` across all 54 ticks. Fix: set `rescueWallSeen`
+   directly from `hasEnforcementWall(response)`, reject empty strings, remember `lastVideoId` from
+   earlier clean ticks, and fall back to `window.location` (`?v=`, `/shorts/`, `/embed/`,
+   `/live/`) plus `DOMContentLoaded` nudge.
+4. **Preserve `adBreakHeartbeatParams` and prune `/youtubei/v1/get_watch`:** removed
+   `adBreakHeartbeatParams` from `NEUTRALIZED_KEYS` (it appears on all videos, so emptying it
+   rebuilt every clean response and inflated `adsFound`), and added `/youtubei/v1/get_watch` to
+   `PRUNE_ENDPOINTS`.
+5. **In-player ad skip backstop (`skipActiveAd`):** when `#movie_player` has `.ad-showing` or
+   `.ad-interrupting`, mute and fast-forward `<video>` to `duration` and click skip buttons.
+6. **DNR & cosmetic rules (`youtube.txt`):** removed bare-host blocks on
+   `pagead2.googlesyndication.com`, `ade.googlesyndication.com`, and `googleadservices.com` that
+   returned `net::ERR_BLOCKED_BY_CLIENT` on ActiveView pings and triggered detection (§9, §11);
+   fixed missing leading dots on `.video-ads.ytp-ad-module` and `.ytp-ad-progress-list`.
+
+Gate green: extension 126, core 145, rules 9; `pnpm check:ci --force` exit 0; `vm-rescue-smoke`
+green on all 7 scenarios against a wall response without `videoDetails`. Evidence: §26.

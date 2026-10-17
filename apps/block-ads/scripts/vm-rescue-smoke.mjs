@@ -6,14 +6,15 @@ import vm from "node:vm";
 
 const code = readFileSync(new URL("./dist/innertube.js", `file://${import.meta.dirname}/../`), "utf8");
 
+// El muro real de YouTube NO trae videoDetails y getVideoData() devuelve video_id: "".
 const makePlayer = (wall, videoId = "dQw4w9WgXcQ") => ({
   getPlayerResponse: () =>
     wall
       ? {
-          videoDetails: { videoId },
           playabilityStatus: { status: "ERROR", errorScreen: { enforcementMessageViewModel: { title: "x" } } },
         }
       : { playabilityStatus: { status: "OK" }, videoDetails: { videoId } },
+  getVideoData: () => ({ video_id: "" }),
   loadVideoById: undefined,
 });
 
@@ -77,7 +78,7 @@ const run = (name, { wallFromStart, lateWall, wallAfter, throwingUntil, neverSee
     fetch: async () => new Response(JSON.stringify({}), { headers: { "content-type": "application/json" } }),
   };
   sandbox.window = sandbox;
-  sandbox.location = { search: "" };
+  sandbox.location = { search: "?v=dQw4w9WgXcQ", href: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" };
   sandbox.XMLHttpRequest = class {
     open() {}
     send() {}

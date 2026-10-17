@@ -977,3 +977,45 @@ Contrato nuevo del paste: **ESTADO undefined ahora prueba falla de inyección de
 pérdida de token. Si el próximo paste trae ESTADO con `rescueLastAt` fresco, la vigía vive y el
 paste es plenamente legible; si lo trae congelado en ~5 s, la cadena murió ahí sin nudges; si
 vuelve undefined, el problema es de carga de la extensión (recarga en chrome://extensions).
+
+## §26. Auditoría de causas raíz y corrección integral del bloqueo en YouTube (2026-10-17)
+
+El análisis cruzado de las sesiones anteriores (incluyendo `"no se ve ni se escucha nada"` y los
+54 ticks con `rescueWallSeen: false` mientras el muro estaba en pantalla) identificó seis defectos
+estructurales en la implementación previa:
+
+1. **`neutralizeEnforcement` provocaba pantalla negra y cegaba a `player-rescue`:** cuando una
+   respuesta llegaba con `playabilityStatus.status === "ERROR"` (`enforcementMessageViewModel`),
+   su sesión SABR venía castigada/sin stream válido (§21). Reescribir `status` a `"OK"` y borrar
+   `errorScreen` engañaba a `#movie_player` (pantalla negra sin audio ni vídeo) y, al borrar
+   `errorScreen`, hacía que `hasEnforcementWall(player.getPlayerResponse())` diera `false`,
+   impidiendo que `player-rescue` ejecutara `loadVideoById`. Corrección: `neutralizeEnforcement`
+   conserva intacto `playabilityStatus` en errores reales para que `player-rescue` recargue un
+   stream sano con `loadVideoById`, y poda únicamente `bkaEnforcementMessageViewModel` /
+   `enforcementMessageViewModel` dentro de `auxiliaryUi.messageRenderers` en respuestas jugables.
+2. **`onAbnormalityDetected` sin neutralizar en `Promise.prototype.then`:** el muro que aparecía a
+   los ~50–55 s con `enforcement: 0` y `wallRewritten: false` lo fabrica el propio cliente de
+   YouTube al ejecutar un callback en `Promise.prototype.then` cuya fuente contiene
+   `"onAbnormalityDetected"` (documentado también en `uBlockOrigin/uAssets`). Corrección:
+   `installAbnormalityGuard` envuelve `Promise.prototype.then` y sustituye ese callback por un
+   no-op antes de que mute `playabilityStatus`.
+3. **`rescueVideoId` devolvía `undefined` en un muro real y ocultaba `rescueWallSeen`:** una
+   respuesta `ERROR` real de YouTube no incluye `videoDetails.videoId`, y `getVideoData()` en
+   estado de error devuelve `{ video_id: "" }`. Como `status.rescueWallSeen = true` estaba dentro
+   de `if (videoId !== undefined)`, `rescueWallSeen` quedó en `false` y `playerRescues` en `0`
+   durante los 54 ticks medidos. Corrección: se desacopla `rescueWallSeen` de la resolución de
+   `videoId`, se rechazan cadenas vacías, se recuerda `lastVideoId` de los ticks limpios previos y
+   se añade fallback a `window.location` (`?v=`, `/shorts/`, `/embed/`, `/live/`).
+4. **`adBreakHeartbeatParams` fuera de `NEUTRALIZED_KEYS` y soporte de `/youtubei/v1/get_watch`:**
+   `adBreakHeartbeatParams` viene en todos los vídeos (incluso sin anuncios, §1); vaciarlo
+   reconstruía todas las respuestas limpias e inflaba `adsFound`. Además se añade
+   `/youtubei/v1/get_watch` a `PRUNE_ENDPOINTS` para cubrir la navegación SPA de Polymer.
+5. **Backstop `skipActiveAd` en el reproductor:** si un anuncio instream llega a activarse
+   (`.ad-showing` / `.ad-interrupting` en `#movie_player`), se silencia y adelanta el `<video>` al
+   final y se pulsan los botones de skip (`.ytp-ad-skip-button`, `.ytp-ad-skip-button-modern`,
+   `.ytp-skip-ad-button`, `.ytp-ad-overlay-close-button`).
+6. **Reglas DNR y selectores CSS en `youtube.txt`:** se eliminan los bloqueos de dominio entero
+   sobre `pagead2.googlesyndication.com`, `ade.googlesyndication.com` y `googleadservices.com` que
+   devolvían `net::ERR_BLOCKED_BY_CLIENT` en los pings de ActiveView y disparaban el detector
+   cliente (§9, §11), y se corrigen los selectores de clase del reproductor
+   (`.video-ads.ytp-ad-module` y `.ytp-ad-progress-list`, que carecían del punto inicial).
