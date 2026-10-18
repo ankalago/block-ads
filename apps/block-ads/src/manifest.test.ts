@@ -23,9 +23,18 @@ describe("manifest MV3", () => {
     ]);
   });
 
-  it("registra el service worker, el popup y los permisos del MVP", () => {
+  it("registra versión 1.0.0, descripción, iconos, service worker, popup y permisos", () => {
+    expect(manifest.version).toBe("1.0.0");
+    expect(manifest.description.length).toBeGreaterThan(20);
+    expect(manifest.icons).toEqual({
+      "16": "icon-16.png",
+      "32": "icon-32.png",
+      "48": "icon-48.png",
+      "128": "icon-128.png",
+    });
     expect(manifest.background.service_worker).toBe("background.js");
     expect(manifest.action.default_popup).toBe("popup.html");
+    expect(manifest.action.default_icon).toEqual(manifest.icons);
     expect(manifest.minimum_chrome_version).toBe("111");
     expect(manifest.permissions).toEqual(["declarativeNetRequest", "storage", "declarativeNetRequestFeedback"]);
     expect(manifest.host_permissions).toEqual(["https://*.youtube.com/*"]);
@@ -39,6 +48,10 @@ describe("manifest MV3", () => {
     expect([...referencedFiles(manifest)].sort()).toEqual([
       "background.js",
       "cosmetics.css",
+      "icon-128.png",
+      "icon-16.png",
+      "icon-32.png",
+      "icon-48.png",
       "innertube.js",
       "popup.html",
       "rules.json",

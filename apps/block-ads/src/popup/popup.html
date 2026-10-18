@@ -5,32 +5,102 @@
     <title>Block Ads</title>
     <style>
       :root {
-        color-scheme: light dark;
+        color-scheme: dark;
       }
 
       body {
-        font: 13px/1.4 system-ui, sans-serif;
-        margin: 12px;
-        min-width: 200px;
+        background: #0f172a;
+        color: #f8fafc;
+        font: 13px/1.45 system-ui, -apple-system, sans-serif;
+        margin: 0;
+        padding: 14px 16px;
+        width: 240px;
+      }
+
+      .header {
+        align-items: center;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        display: flex;
+        gap: 10px;
+        margin-bottom: 12px;
+        padding-bottom: 10px;
+      }
+
+      .logo {
+        flex-shrink: 0;
+        height: 28px;
+        width: 28px;
+      }
+
+      .title-row {
+        align-items: baseline;
+        display: flex;
+        gap: 6px;
+      }
+
+      .title {
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+
+      .version {
+        background: rgba(239, 68, 68, 0.18);
+        border: 1px solid rgba(239, 68, 68, 0.35);
+        border-radius: 999px;
+        color: #fca5a5;
+        font-size: 10px;
+        font-weight: 600;
+        padding: 1px 6px;
+      }
+
+      .subtitle {
+        color: #94a3b8;
+        font-size: 11px;
       }
 
       label {
         align-items: center;
+        background: rgba(30, 41, 59, 0.75);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+        cursor: pointer;
         display: flex;
-        gap: 8px;
+        font-weight: 500;
+        justify-content: space-between;
+        padding: 10px 12px;
+      }
+
+      input[type="checkbox"] {
+        accent-color: #ef4444;
+        cursor: pointer;
+        height: 16px;
+        width: 16px;
       }
 
       output {
-        color: color-mix(in srgb, currentColor 60%, transparent);
+        color: #94a3b8;
         display: block;
+        font-size: 11px;
         margin-top: 8px;
+        text-align: right;
       }
     </style>
   </head>
   <body>
+    <div class="header">
+      <img class="logo" src="icon-48.png" alt="Block Ads" />
+      <div>
+        <div class="title-row">
+          <span class="title">Block Ads</span>
+          <span class="version">v1.0.0</span>
+        </div>
+        <div class="subtitle">YouTube sin interrupciones</div>
+      </div>
+    </div>
     <label>
+      <span>Bloquear anuncios</span>
       <input id="ruleset-enabled" type="checkbox" />
-      Bloquear anuncios
     </label>
     <output id="state"></output>
     <script src="popup.js"></script>
