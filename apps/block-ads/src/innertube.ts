@@ -1,4 +1,4 @@
-import { installAbnormalityGuard, neutralizeEnforcement } from "./enforcement.ts";
+import { neutralizeEnforcement } from "./enforcement.ts";
 import { NEUTRALIZED_KEYS, PLAYER_RESCUE_CONFIG, PRUNE_ENDPOINTS, PRUNE_RULES } from "./innertube.config.ts";
 import { PLAYER_ELEMENT_ID, type RescueStatus, rescueStatusSeed, startPlayerRescue } from "./player-rescue.ts";
 
@@ -525,7 +525,6 @@ export const installInnerTubePatch = (): CarrierStatus => {
 
   const network = networkStatusSeed();
 
-  installAbnormalityGuard(() => markEnforcementRewritten(network));
   installFetchPatch(network);
   installXhrPatch(network);
 
@@ -544,7 +543,12 @@ export const installInnerTubePatch = (): CarrierStatus => {
   // plano por completo: al volver el foco y al intentar reproducir, se interroga al player al acto.
   if (typeof document !== "undefined") {
     startPlayerRescue(
-      () => document.getElementById(PLAYER_ELEMENT_ID) ?? undefined,
+      () => {
+        if (window.ytInitialPlayerResponse !== undefined) {
+          healRaw(window, window.ytInitialPlayerResponse, NEUTRALIZED_KEYS, status, network);
+        }
+        return document.getElementById(PLAYER_ELEMENT_ID) ?? undefined;
+      },
       (player, videoId) => player.loadVideoById?.(videoId),
       status,
       PLAYER_RESCUE_CONFIG,
@@ -555,7 +559,6 @@ export const installInnerTubePatch = (): CarrierStatus => {
         // `play` no burbujea; en captura el document lo recibe igual. Cualquier gesto del usuario
         // (pointerdown en captura) también interroga: un tab oculto puede congelar los timers
         // aunque el usuario esté tocando la página o la pared.
-        document.addEventListener("DOMContentLoaded", handler);
         document.addEventListener("play", handler, true);
         document.addEventListener("pointerdown", handler, true);
       },

@@ -1,13 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-  ABNORMALITY_MARKER,
+  ADBLOCK_SUPPORT_URL,
   ENFORCEMENT_STATUS,
   hasEnforcementWall,
-  installAbnormalityGuard,
-  isAbnormalityCallback,
   neutralizeEnforcement,
   PLAYABILITY_KEY,
   PLAYABLE_STATUS,
+  UNPLAYABLE_STATUS,
 } from "./enforcement.ts";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -120,44 +119,63 @@ describe("detección del muro de enforcement", () => {
     ).toBe(true);
   });
 
+  it("reconocen la pantalla 'Something went wrong. Please try again later. Learn more' (UNPLAYABLE + 3037019)", () => {
+    const disguisedWall = {
+      playabilityStatus: {
+        status: UNPLAYABLE_STATUS,
+        errorScreen: {
+          playerErrorMessageRenderer: {
+            reason: { simpleText: "Something went wrong. Please try again later." },
+            subreason: {
+              runs: [
+                {
+                  text: "Learn more",
+                  navigationEndpoint: {
+                    urlEndpoint: { url: ADBLOCK_SUPPORT_URL },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+    };
+
+    expect(hasEnforcementWall(disguisedWall)).toBe(true);
+  });
+
+  it("no confunden un captcha ni un video genuinamente caído sin enlace 3037019 con el muro", () => {
+    const captchaScreen = {
+      playabilityStatus: {
+        status: UNPLAYABLE_STATUS,
+        errorScreen: {
+          playerErrorMessageRenderer: {
+            playerCaptchaViewModel: {},
+            subreason: { runs: [{ text: ADBLOCK_SUPPORT_URL }] },
+          },
+        },
+      },
+    };
+    const genuineUnavailable = {
+      playabilityStatus: {
+        status: "ERROR",
+        errorScreen: {
+          playerErrorMessageRenderer: {
+            reason: { simpleText: "Video unavailable" },
+          },
+        },
+      },
+    };
+
+    expect(hasEnforcementWall(captchaScreen)).toBe(false);
+    expect(hasEnforcementWall(genuineUnavailable)).toBe(false);
+  });
+
   it("descartan respuestas limpias y errores ajenos", () => {
     expect(hasEnforcementWall({ playabilityStatus: { status: "OK" } })).toBe(false);
     expect(hasEnforcementWall({})).toBe(false);
     expect(hasEnforcementWall("hola")).toBe(false);
     expect(hasEnforcementWall(undefined)).toBe(false);
-  });
-});
-
-describe("guardia contra onAbnormalityDetected en Promise.prototype.then", () => {
-  it("identifica callbacks cuya fuente contiene onAbnormalityDetected", () => {
-    const detector = () => "onAbnormalityDetected";
-    const innocent = () => "normalPlayback";
-
-    expect(ABNORMALITY_MARKER).toBe("onAbnormalityDetected");
-    expect(isAbnormalityCallback(detector)).toBe(true);
-    expect(isAbnormalityCallback(innocent)).toBe(false);
-    expect(isAbnormalityCallback(null)).toBe(false);
-    expect(isAbnormalityCallback("onAbnormalityDetected")).toBe(false);
-  });
-
-  it("neutraliza el callback de onAbnormalityDetected en Promise.then sin romper promesas normales", async () => {
-    const onBlocked = vi.fn();
-    installAbnormalityGuard(onBlocked);
-
-    const sideEffect = vi.fn();
-    const abnormalityHandler = () => {
-      sideEffect("onAbnormalityDetected");
-      return "walled";
-    };
-    const normalHandler = (value: number) => value * 2;
-
-    const blockedResult = await Promise.resolve("tick").then(abnormalityHandler);
-    const normalResult = await Promise.resolve(21).then(normalHandler);
-
-    expect(sideEffect).not.toHaveBeenCalled();
-    expect(blockedResult).toBeUndefined();
-    expect(onBlocked).toHaveBeenCalledTimes(1);
-    expect(normalResult).toBe(42);
   });
 });
 

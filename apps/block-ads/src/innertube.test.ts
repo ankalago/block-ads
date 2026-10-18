@@ -73,11 +73,11 @@ describe("neutralización de respuestas de InnerTube", () => {
     expect(neutralized.playerAds).toEqual([]);
   });
 
-  it("conserva intacto adBreakHeartbeatParams (presente incluso en vídeos sin anuncios)", () => {
+  it("vacía adBreakHeartbeatParams a string vacío para mantener consistencia con adPlacements vacío", () => {
     const neutralized = view(pruneResponsePayload(PLAYER_URL, playerResponse()));
 
-    expect(neutralized.adBreakHeartbeatParams).toBe("heartbeat-token");
-    expect(key(key(neutralized.playerConfig, "adsConfig"), "adBreakHeartbeatParams")).toBe("nested-heartbeat");
+    expect(neutralized.adBreakHeartbeatParams).toBe("");
+    expect(key(key(neutralized.playerConfig, "adsConfig"), "adBreakHeartbeatParams")).toBe("");
   });
 
   it("neutraliza playerResponse anidado en respuestas de /youtubei/v1/get_watch", () => {
@@ -123,7 +123,7 @@ describe("neutralización de respuestas de InnerTube", () => {
     expect(key(neutralized.contents, "adSlots")).toEqual([]);
     expect(key(neutralized.contents, "tabs")).toEqual([{ title: "Home" }]);
     expect(neutralized.onResponseReceivedActions).toEqual([{ adPlacements: [] }]);
-    expect(neutralized.adBreakHeartbeatParams).toBe("hb");
+    expect(neutralized.adBreakHeartbeatParams).toBe("");
   });
 
   it("elimina una clave de anuncio cuyo valor no tiene vacío propio (number, boolean o null)", () => {
@@ -146,7 +146,7 @@ describe("neutralización de respuestas de InnerTube", () => {
     const result = view(neutralizeAdKeys(source, NEUTRALIZED_KEYS));
 
     expect(result.adPlacements).toEqual([]);
-    expect(result.adBreakHeartbeatParams).toBe("tok");
+    expect(result.adBreakHeartbeatParams).toBe("");
     expect("adSlots" in result).toBe(false);
     expect("playerAds" in result).toBe(false);
     expect(key(result.videoDetails, "title")).toBe("Fixture");
@@ -246,13 +246,13 @@ describe("neutralización del carrier inline de la primera respuesta", () => {
     adBreakHeartbeatParams: "Q0FBJTNE",
   });
 
-  it("devuelven el carrier con las claves de anuncio presentes y vacías, preservando heartbeat", () => {
+  it("devuelven el carrier con las claves de anuncio presentes y vacías", () => {
     const result = initialResponseValue(carrier(), NEUTRALIZED_KEYS);
 
     expect(key(result, "adPlacements")).toEqual([]);
     expect(key(result, "playerAds")).toEqual([]);
     expect(key(result, "adSlots")).toEqual([]);
-    expect(key(result, "adBreakHeartbeatParams")).toBe("Q0FBJTNE");
+    expect(key(result, "adBreakHeartbeatParams")).toBe("");
     expect(key(result, "videoDetails")).toEqual({ videoId: "dQw4w9WgXcQ" });
   });
 
@@ -279,7 +279,7 @@ describe("neutralización del carrier inline de la primera respuesta", () => {
 
     const seen = host.ytInitialPlayerResponse;
     expect(key(seen, "playerAds")).toEqual([]);
-    expect(key(seen, "adBreakHeartbeatParams")).toBe("Q0FBJTNE");
+    expect(key(seen, "adBreakHeartbeatParams")).toBe("");
   });
 
   it("neutralizan también el valor que ya estaba asignado cuando la propiedad existía como dato", () => {
@@ -525,7 +525,7 @@ describe("el carrier inline vuelve a ser data property después de neutralizarlo
     };
 
     expect(key(host.ytInitialPlayerResponse, "adPlacements")).toEqual([]);
-    expect(key(host.ytInitialPlayerResponse, "adBreakHeartbeatParams")).toBe("abc");
+    expect(key(host.ytInitialPlayerResponse, "adBreakHeartbeatParams")).toBe("");
     expect(carrierDescriptor(host)).toEqual(varShape);
   });
 
@@ -660,10 +660,10 @@ describe("telemetría de red para distinguir un parche muerto de un bypass", () 
 });
 
 describe("conteo de anuncios reales antes de neutralizar", () => {
-  it("cuentan los elementos de cada clave de anuncio llena sin contar adBreakHeartbeatParams", () => {
+  it("cuentan los elementos de cada clave de anuncio llena, incluidas las anidadas", () => {
     const found = countAdKeys(playerResponse(), NEUTRALIZED_KEYS);
 
-    expect(found).toEqual({ adPlacements: 1, adSlots: 1, playerAds: 1 });
+    expect(found).toEqual({ adPlacements: 1, adSlots: 1, playerAds: 1, adBreakHeartbeatParams: 2 });
   });
 
   it("no registran nada cuando las claves ya vienen vacías", () => {

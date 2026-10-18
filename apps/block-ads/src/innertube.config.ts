@@ -6,7 +6,7 @@ export type PruneEndpoint = (typeof PRUNE_ENDPOINTS)[number];
  * propio tipo runtime (`[]`, `{}` o `""`). `adBreakHeartbeatParams` se preserva intacto (aparece
  * incluso en vídeos sin anuncios, §1, y tocarlo reconstruye todas las respuestas limpias).
  */
-export const NEUTRALIZED_KEYS: readonly string[] = ["adPlacements", "adSlots", "playerAds"];
+export const NEUTRALIZED_KEYS: readonly string[] = ["adPlacements", "adSlots", "playerAds", "adBreakHeartbeatParams"];
 
 export type PruneRule = {
   readonly endpoint: PruneEndpoint;

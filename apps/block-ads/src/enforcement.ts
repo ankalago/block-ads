@@ -19,13 +19,17 @@
 
 export const PLAYABILITY_KEY = "playabilityStatus";
 export const ENFORCEMENT_STATUS = "ERROR";
+export const UNPLAYABLE_STATUS = "UNPLAYABLE";
 export const PLAYABLE_STATUS = "OK";
-export const ABNORMALITY_MARKER = "onAbnormalityDetected";
+export const ADBLOCK_SUPPORT_URL = "https://support.google.com/youtube/answer/3037019";
 
 const ERROR_SCREEN_KEY = "errorScreen";
+const PLAYER_ERROR_RENDERER_KEY = "playerErrorMessageRenderer";
+const CAPTCHA_VIEW_MODEL_KEY = "playerCaptchaViewModel";
 const AUXILIARY_UI_KEY = "auxiliaryUi";
 const MESSAGE_RENDERERS_KEY = "messageRenderers";
 const ENFORCEMENT_VIEW_MODELS: readonly string[] = ["enforcementMessageViewModel", "bkaEnforcementMessageViewModel"];
+const WALL_STATUSES: readonly string[] = [ENFORCEMENT_STATUS, UNPLAYABLE_STATUS];
 
 type JsonObject = { readonly [key: string]: JsonValue };
 type JsonValue = string | number | boolean | null | readonly JsonValue[] | JsonObject;
@@ -36,16 +40,33 @@ const isJsonObject = (value: unknown): value is JsonObject =>
 const hasEnforcementModel = (container: JsonObject): boolean =>
   ENFORCEMENT_VIEW_MODELS.some((modelKey) => modelKey in container);
 
-/** true solo si el payload trae el muro de bloqueo en playabilityStatus.errorScreen. */
+const hasDisguisedAdblockError = (screen: JsonObject): boolean => {
+  const errorRenderer = screen[PLAYER_ERROR_RENDERER_KEY];
+  if (isJsonObject(errorRenderer) && CAPTCHA_VIEW_MODEL_KEY in errorRenderer) return false;
+  try {
+    return JSON.stringify(screen).includes(ADBLOCK_SUPPORT_URL);
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * true si el payload trae el muro de bloqueo en playabilityStatus.errorScreen:
+ * - el cartel explícito (`enforcementMessageViewModel` / `bkaEnforcementMessageViewModel`), o
+ * - la pantalla disfrazada "Something went wrong. Please try again later. Learn more"
+ *   (`UNPLAYABLE`/`ERROR` con enlace a `support.google.com/youtube/answer/3037019`, sin captcha).
+ */
 export const hasEnforcementWall = (payload: unknown): boolean => {
   if (!isJsonObject(payload)) return false;
 
   const playability = payload[PLAYABILITY_KEY];
-  if (!isJsonObject(playability) || playability.status !== ENFORCEMENT_STATUS) return false;
+  if (!isJsonObject(playability) || typeof playability.status !== "string") return false;
+  if (!WALL_STATUSES.includes(playability.status)) return false;
 
   const screen = playability[ERROR_SCREEN_KEY];
+  if (!isJsonObject(screen)) return false;
 
-  return isJsonObject(screen) && hasEnforcementModel(screen);
+  return hasEnforcementModel(screen) || hasDisguisedAdblockError(screen);
 };
 
 /**
@@ -73,44 +94,4 @@ export const neutralizeEnforcement = (payload: JsonValue | undefined): JsonValue
       [MESSAGE_RENDERERS_KEY]: cleanedRenderers,
     },
   };
-};
-
-const noopAbnormalityHandler = (): undefined => undefined;
-
-/** Detecta el callback de `onAbnormalityDetected` que YouTube agenda en `Promise.prototype.then`. */
-export const isAbnormalityCallback = (callback: unknown): boolean => {
-  if (typeof callback !== "function") return false;
-  try {
-    return Function.prototype.toString.call(callback).includes(ABNORMALITY_MARKER);
-  } catch {
-    return false;
-  }
-};
-
-type PromiseThen = typeof Promise.prototype.then;
-
-const THEN_METHOD = "then";
-
-/**
- * Envuelve `Promise.prototype.then` para sustituir cualquier callback de
- * `onAbnormalityDetected` por un no-op, impidiendo que el cliente fabrique el muro en vivo.
- */
-export const installAbnormalityGuard = (onBlocked?: () => void): void => {
-  const originalThen: PromiseThen = Promise.prototype.then;
-  const guardedThen: PromiseThen = new Proxy(originalThen, {
-    apply: (target, thisArg: Promise<unknown>, argArray: Parameters<PromiseThen>) => {
-      const [onFulfilled, onRejected] = argArray;
-      if (!isAbnormalityCallback(onFulfilled)) {
-        return target.call(thisArg, onFulfilled, onRejected);
-      }
-      onBlocked?.();
-      return target.call(thisArg, noopAbnormalityHandler, onRejected);
-    },
-  });
-
-  Object.defineProperty(Promise.prototype, THEN_METHOD, {
-    configurable: true,
-    writable: true,
-    value: guardedThen,
-  });
 };
