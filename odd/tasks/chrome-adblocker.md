@@ -22,7 +22,7 @@ scriptlet engine beyond what YouTube needs, UI options beyond enable/disable.
 | 4 | core: compiler IR -> DNR ruleset, enforcing Chrome limits | done | 9ec85a8, b11ee24 |
 | 5 | apps/block-ads: MV3 manifest, service worker, popup, esbuild pipeline | done | d02e526 |
 | 6 | YouTube rules: network (DNR) + cosmetic, verified in real DOM | done | 845fd74, 14c8e07 |
-| 7 | Load unpacked in Chrome and verify a real ad video is blocked | in_progress | c638867 |
+| 7 | Load unpacked in Chrome and verify a real ad video is blocked | done | e81d4b1, dbe0e0b |
 
 ## Decisions
 
@@ -558,5 +558,22 @@ paste (`rescueTicks: 54, rescueWallSeen: false, playerRescues: 0` while `LIVE` s
    returned `net::ERR_BLOCKED_BY_CLIENT` on ActiveView pings and triggered detection (§9, §11);
    fixed missing leading dots on `.video-ads.ytp-ad-module` and `.ytp-ad-progress-list`.
 
-Gate green: extension 126, core 145, rules 9; `pnpm check:ci --force` exit 0; `vm-rescue-smoke`
+Gate green: extension 127, core 145, rules 9; `pnpm check:ci --force` exit 0; `vm-rescue-smoke`
 green on all 7 scenarios against a wall response without `videoDetails`. Evidence: §26.
+
+## Task 7 closed & v1.0.0 release pipeline (e81d4b1 -> dbe0e0b -> 8d0122a)
+
+- Live verification on `https://www.youtube.com/watch?v=iUXbJhx_vfQ` confirmed two critical
+  invariants that finally closed Task 7 in Paul's real Chrome:
+  1. Never mutate `auxiliaryUi.messageRenderers` or `playabilityStatus`: stripping
+     `bkaEnforcementMessageViewModel` from `auxiliaryUi.messageRenderers` causes `base.js` to
+     abort playback initialization on a clean `OK` response with error `282054944`
+     (`p=player_error1`), while rewriting `playabilityStatus.status` from `ERROR` to `OK` leaves a
+     dead SABR stream and blinds `player-rescue`.
+  2. Never inject `adPlaybackContext: { pyv: true }` into outgoing `/youtubei/v1/player` requests:
+     the server rejects `{ pyv: true }` with `UNPLAYABLE` (`3037019`).
+- Bumped extension version to `1.0.0`, added manifest description and deterministic 16/32/48/128
+  shield+play-cut PNG icons in `build.mjs`, redesigned `popup.html`, and added `pnpm pack:extension`.
+- Published public repository `https://github.com/ankalago/block-ads` with `.github/workflows/ci.yml`
+  that runs `pnpm check:ci` and automatically packages and publishes `block-ads-v1.0.0.zip` to
+  GitHub Releases and Actions artifacts on every push/merge to `main`.
