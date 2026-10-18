@@ -1,0 +1,67 @@
+---
+name: CI & Package Extension
+
+on:
+  push:
+    branches:
+      - main
+      - "feat/**"
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-package:
+    name: Verify & Package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run CI checks (format, lint, typecheck, test, build)
+        run: pnpm check:ci
+
+      - name: Package extension zip on main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: pnpm pack:extension
+
+      - name: Upload extension zip artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: block-ads-extension
+          path: apps/block-ads/block-ads-v*.zip
+          if-no-files-found: error
+
+      - name: Publish extension zip to GitHub Releases
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          MANIFEST="apps/block-ads/dist/manifest.json"
+          VERSION=$(node -p "JSON.parse(fs.readFileSync('$MANIFEST')).version")
+          TAG="v${VERSION}"
+          ZIP_FILE="apps/block-ads/block-ads-${TAG}.zip"
+          NOTES="Paquete listo para instalar en Chrome (Cargar descomprimida)."
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" "${ZIP_FILE}" --clobber
+          else
+            gh release create "${TAG}" "${ZIP_FILE}" \
+              --title "Block Ads ${TAG}" \
+              --notes "${NOTES}"
+          fi
