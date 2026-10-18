@@ -22,6 +22,7 @@ export const ENFORCEMENT_STATUS = "ERROR";
 export const UNPLAYABLE_STATUS = "UNPLAYABLE";
 export const PLAYABLE_STATUS = "OK";
 export const ADBLOCK_SUPPORT_URL = "https://support.google.com/youtube/answer/3037019";
+export const PLAYER_ERROR_SUPPORT_URL = "support.google.com/youtube/?p=player_error1";
 
 const ERROR_SCREEN_KEY = "errorScreen";
 const PLAYER_ERROR_RENDERER_KEY = "playerErrorMessageRenderer";
@@ -30,6 +31,8 @@ const AUXILIARY_UI_KEY = "auxiliaryUi";
 const MESSAGE_RENDERERS_KEY = "messageRenderers";
 const ENFORCEMENT_VIEW_MODELS: readonly string[] = ["enforcementMessageViewModel", "bkaEnforcementMessageViewModel"];
 const WALL_STATUSES: readonly string[] = [ENFORCEMENT_STATUS, UNPLAYABLE_STATUS];
+const DISGUISED_WALL_MARKERS: readonly string[] = [ADBLOCK_SUPPORT_URL, PLAYER_ERROR_SUPPORT_URL];
+const EXCLUDED_REQUEST_PATHS: readonly string[] = ["/shorts/", "youtube.com/tv", "youtube.com/embed/"];
 
 type JsonObject = { readonly [key: string]: JsonValue };
 type JsonValue = string | number | boolean | null | readonly JsonValue[] | JsonObject;
@@ -44,7 +47,8 @@ const hasDisguisedAdblockError = (screen: JsonObject): boolean => {
   const errorRenderer = screen[PLAYER_ERROR_RENDERER_KEY];
   if (isJsonObject(errorRenderer) && CAPTCHA_VIEW_MODEL_KEY in errorRenderer) return false;
   try {
-    return JSON.stringify(screen).includes(ADBLOCK_SUPPORT_URL);
+    const serialized = JSON.stringify(screen);
+    return DISGUISED_WALL_MARKERS.some((marker) => serialized.includes(marker));
   } catch {
     return false;
   }
@@ -93,5 +97,46 @@ export const neutralizeEnforcement = (payload: JsonValue | undefined): JsonValue
       ...auxiliary,
       [MESSAGE_RENDERERS_KEY]: cleanedRenderers,
     },
+  };
+};
+
+const isEligibleWatchLocation = (locationHref?: string): boolean => {
+  const fallback = typeof window !== "undefined" ? window.location?.href : undefined;
+  const href = locationHref ?? fallback;
+  if (typeof href !== "string" || href.length === 0) return true;
+  return !EXCLUDED_REQUEST_PATHS.some((excluded) => href.includes(excluded));
+};
+
+const withPyvPlaybackContext = (playbackContext: unknown): JsonObject | undefined => {
+  if (!isJsonObject(playbackContext) || !isJsonObject(playbackContext.contentPlaybackContext)) {
+    return undefined;
+  }
+  return { ...playbackContext, adPlaybackContext: { pyv: true } };
+};
+
+/**
+ * Inyecta `adPlaybackContext: { pyv: true }` en peticiones salientes de `/youtubei/v1/player`
+ * (aquellas con `context.client` y `playbackContext.contentPlaybackContext`) en páginas de watch.
+ * Esto evita que el servidor responda con `ERROR`/`p=player_error1` (282054944).
+ */
+export const patchPlayerRequestPayload = <T>(value: T, locationHref?: string): T | JsonObject => {
+  if (!isEligibleWatchLocation(locationHref) || !isJsonObject(value)) return value;
+  const context = value.context;
+  if (!isJsonObject(context) || !isJsonObject(context.client)) return value;
+
+  const patchedPlayback = withPyvPlaybackContext(value.playbackContext);
+  const playerRequest = value.playerRequest;
+  const patchedNestedPlayback = isJsonObject(playerRequest)
+    ? withPyvPlaybackContext(playerRequest.playbackContext)
+    : undefined;
+
+  if (patchedPlayback === undefined && patchedNestedPlayback === undefined) return value;
+
+  return {
+    ...value,
+    ...(patchedPlayback !== undefined ? { playbackContext: patchedPlayback } : {}),
+    ...(isJsonObject(playerRequest) && patchedNestedPlayback !== undefined
+      ? { playerRequest: { ...playerRequest, playbackContext: patchedNestedPlayback } }
+      : {}),
   };
 };

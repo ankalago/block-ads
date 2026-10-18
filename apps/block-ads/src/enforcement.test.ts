@@ -6,6 +6,8 @@ import {
   neutralizeEnforcement,
   PLAYABILITY_KEY,
   PLAYABLE_STATUS,
+  PLAYER_ERROR_SUPPORT_URL,
+  patchPlayerRequestPayload,
   UNPLAYABLE_STATUS,
 } from "./enforcement.ts";
 
@@ -144,6 +146,44 @@ describe("detección del muro de enforcement", () => {
     expect(hasEnforcementWall(disguisedWall)).toBe(true);
   });
 
+  it("reconocen el payload real de iUXbJhx_vfQ ('Something went wrong' + p=player_error1 + 282054944)", () => {
+    const playerError1Wall = {
+      playabilityStatus: {
+        status: "ERROR",
+        playableInEmbed: true,
+        errorScreen: {
+          playerErrorMessageRenderer: {
+            reason: {
+              runs: [{ text: "Something went wrong. Please try again later." }],
+            },
+            proceedButton: {
+              buttonRenderer: {
+                text: { runs: [{ text: "Learn more" }] },
+                navigationEndpoint: {
+                  commandMetadata: {
+                    webCommandMetadata: {
+                      url: "//support.google.com/youtube/?p=player_error1#zippy=%2Cupdate-your-browser",
+                      webPageType: "WEB_PAGE_TYPE_UNKNOWN",
+                    },
+                  },
+                  urlEndpoint: {
+                    url: "//support.google.com/youtube/?p=player_error1#zippy=%2Cupdate-your-browser",
+                  },
+                },
+              },
+            },
+            subreason: {
+              runs: [{ text: "282054944" }],
+            },
+          },
+        },
+      },
+    };
+
+    expect(PLAYER_ERROR_SUPPORT_URL).toBe("support.google.com/youtube/?p=player_error1");
+    expect(hasEnforcementWall(playerError1Wall)).toBe(true);
+  });
+
   it("no confunden un captcha ni un video genuinamente caído sin enlace 3037019 con el muro", () => {
     const captchaScreen = {
       playabilityStatus: {
@@ -176,6 +216,39 @@ describe("detección del muro de enforcement", () => {
     expect(hasEnforcementWall({})).toBe(false);
     expect(hasEnforcementWall("hola")).toBe(false);
     expect(hasEnforcementWall(undefined)).toBe(false);
+  });
+});
+
+describe("parche de peticiones salientes de player (adPlaybackContext pyv)", () => {
+  it("añade adPlaybackContext: { pyv: true } en peticiones de watch con context.client y contentPlaybackContext", () => {
+    const request = {
+      context: { client: { clientName: "WEB" } },
+      videoId: "iUXbJhx_vfQ",
+      playbackContext: {
+        contentPlaybackContext: { html5Preference: "HTML5_PREF_WANTS" },
+      },
+    };
+
+    const patched = view(patchPlayerRequestPayload(request, "https://www.youtube.com/watch?v=iUXbJhx_vfQ"));
+    const playbackContext = view(patched.playbackContext);
+
+    expect(playbackContext.adPlaybackContext).toEqual({ pyv: true });
+    expect("adPlaybackContext" in request.playbackContext).toBe(false);
+  });
+
+  it("no modifica peticiones en /shorts/, /embed/ ni /tv, ni objetos que no son peticiones de player", () => {
+    const request = {
+      context: { client: { clientName: "WEB" } },
+      playbackContext: { contentPlaybackContext: {} },
+    };
+    const response = {
+      responseContext: {},
+      playabilityStatus: { status: "OK" },
+    };
+
+    expect(patchPlayerRequestPayload(request, "https://www.youtube.com/shorts/abc")).toBe(request);
+    expect(patchPlayerRequestPayload(request, "https://www.youtube.com/embed/abc")).toBe(request);
+    expect(patchPlayerRequestPayload(response, "https://www.youtube.com/watch?v=iUXbJhx_vfQ")).toBe(response);
   });
 });
 

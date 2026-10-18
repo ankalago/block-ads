@@ -14,12 +14,19 @@ export const PLAYER_ELEMENT_ID = "movie_player";
 type JsonValue = string | number | boolean | null | { readonly [key: string]: JsonValue } | readonly JsonValue[];
 type JsonObject = { readonly [key: string]: JsonValue };
 
+type RescueDomNode = {
+  duration?: unknown;
+  currentTime?: unknown;
+  muted?: unknown;
+  click?: unknown;
+};
+
 export type RescuePlayer = {
   getPlayerResponse?: () => JsonValue | undefined;
   getVideoData?: () => JsonValue | undefined;
   loadVideoById?: (videoId: string) => void;
   classList?: { readonly contains: (token: string) => boolean };
-  querySelector?: (selector: string) => unknown;
+  querySelector?: (selector: string) => RescueDomNode | null | undefined;
 };
 
 const AD_SHOWING_CLASSES: readonly string[] = ["ad-showing", "ad-interrupting"];
