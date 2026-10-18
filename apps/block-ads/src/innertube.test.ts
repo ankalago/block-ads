@@ -359,18 +359,17 @@ describe("el muro de enforcement en el carrier inline", () => {
     expect("errorScreen" in playability).toBe(true);
   });
 
-  it("limpian el popup bkaEnforcementMessageViewModel en auxiliaryUi y marcan wallRewritten", () => {
+  it("conservan intacto auxiliaryUi en el carrier para no provocar el fallo 282054944 en el player", () => {
     const host: CarrierHost = {};
     const status = carrierStatusSeed();
     const network = networkStatusSeed();
+    const initial = popupCarrier();
 
     shadowInlineCarrier(host, NEUTRALIZED_KEYS, status, network);
-    host.ytInitialPlayerResponse = popupCarrier();
+    host.ytInitialPlayerResponse = initial;
 
-    const auxiliary = view(key(host.ytInitialPlayerResponse, "auxiliaryUi"));
-    const renderers = view(auxiliary.messageRenderers);
-    expect(status.wallRewritten).toBe(true);
-    expect("bkaEnforcementMessageViewModel" in renderers).toBe(false);
+    expect(status.wallRewritten).toBe(false);
+    expect(host.ytInitialPlayerResponse).toBe(initial);
   });
 
   it("no marcan el muro en un carrier limpio", () => {

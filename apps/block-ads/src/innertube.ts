@@ -1,4 +1,4 @@
-import { neutralizeEnforcement, patchPlayerRequestPayload } from "./enforcement.ts";
+import { neutralizeEnforcement } from "./enforcement.ts";
 import { NEUTRALIZED_KEYS, PLAYER_RESCUE_CONFIG, PRUNE_ENDPOINTS, PRUNE_RULES } from "./innertube.config.ts";
 import { PLAYER_ELEMENT_ID, type RescueStatus, rescueStatusSeed, startPlayerRescue } from "./player-rescue.ts";
 
@@ -214,25 +214,6 @@ const requestInputUrl = (input: RequestInput): string => {
 };
 
 const requestUrl = (url: string | URL): string => (typeof url === "string" ? url : url.href);
-
-const installJsonStringifyPatch = (): void => {
-  const originalStringify = JSON.stringify;
-  const wrappedStringify: typeof JSON.stringify = (
-    value: unknown,
-    replacer?: unknown,
-    space?: string | number,
-  ): string => {
-    const patched = patchPlayerRequestPayload(value);
-    if (typeof replacer === "function") {
-      return originalStringify(patched, (key: string, item: unknown) => replacer.call(undefined, key, item), space);
-    }
-    if (Array.isArray(replacer)) {
-      return originalStringify(patched, replacer, space);
-    }
-    return originalStringify(patched, null, space);
-  };
-  JSON.stringify = wrappedStringify;
-};
 
 export const installFetchPatch = (network: NetworkStatus): void => {
   const originalFetch = window.fetch;
@@ -544,7 +525,6 @@ export const installInnerTubePatch = (): CarrierStatus => {
 
   const network = networkStatusSeed();
 
-  installJsonStringifyPatch();
   installFetchPatch(network);
   installXhrPatch(network);
 

@@ -7,7 +7,6 @@ import {
   PLAYABILITY_KEY,
   PLAYABLE_STATUS,
   PLAYER_ERROR_SUPPORT_URL,
-  patchPlayerRequestPayload,
   UNPLAYABLE_STATUS,
 } from "./enforcement.ts";
 
@@ -62,14 +61,11 @@ describe("la regla de enforcement sobre respuestas del player", () => {
     expect(hasEnforcementWall(result)).toBe(true);
   });
 
-  it("elimina bkaEnforcementMessageViewModel y enforcementMessageViewModel de auxiliaryUi en respuestas jugables", () => {
-    const result = neutralizeEnforcement(auxiliaryPopupPayload());
-    const auxiliary = view(view(result).auxiliaryUi);
-    const renderers = view(auxiliary.messageRenderers);
+  it("conserva intacto auxiliaryUi para no disparar el error 282054944 (p=player_error1) en base.js", () => {
+    const payload = auxiliaryPopupPayload();
+    const result = neutralizeEnforcement(payload);
 
-    expect("bkaEnforcementMessageViewModel" in renderers).toBe(false);
-    expect("enforcementMessageViewModel" in renderers).toBe(false);
-    expect(renderers.upsellDialogRenderer).toEqual({ title: "Premium" });
+    expect(result).toBe(payload);
     expect(playabilityOf(result).status).toBe("OK");
   });
 
@@ -216,39 +212,6 @@ describe("detección del muro de enforcement", () => {
     expect(hasEnforcementWall({})).toBe(false);
     expect(hasEnforcementWall("hola")).toBe(false);
     expect(hasEnforcementWall(undefined)).toBe(false);
-  });
-});
-
-describe("parche de peticiones salientes de player (adPlaybackContext pyv)", () => {
-  it("añade adPlaybackContext: { pyv: true } en peticiones de watch con context.client y contentPlaybackContext", () => {
-    const request = {
-      context: { client: { clientName: "WEB" } },
-      videoId: "iUXbJhx_vfQ",
-      playbackContext: {
-        contentPlaybackContext: { html5Preference: "HTML5_PREF_WANTS" },
-      },
-    };
-
-    const patched = view(patchPlayerRequestPayload(request, "https://www.youtube.com/watch?v=iUXbJhx_vfQ"));
-    const playbackContext = view(patched.playbackContext);
-
-    expect(playbackContext.adPlaybackContext).toEqual({ pyv: true });
-    expect("adPlaybackContext" in request.playbackContext).toBe(false);
-  });
-
-  it("no modifica peticiones en /shorts/, /embed/ ni /tv, ni objetos que no son peticiones de player", () => {
-    const request = {
-      context: { client: { clientName: "WEB" } },
-      playbackContext: { contentPlaybackContext: {} },
-    };
-    const response = {
-      responseContext: {},
-      playabilityStatus: { status: "OK" },
-    };
-
-    expect(patchPlayerRequestPayload(request, "https://www.youtube.com/shorts/abc")).toBe(request);
-    expect(patchPlayerRequestPayload(request, "https://www.youtube.com/embed/abc")).toBe(request);
-    expect(patchPlayerRequestPayload(response, "https://www.youtube.com/watch?v=iUXbJhx_vfQ")).toBe(response);
   });
 });
 
