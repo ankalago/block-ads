@@ -569,7 +569,11 @@ export const installInnerTubePatch = (): CarrierStatus => {
       () => {
         clearOuterErrorOverlay();
         const currentCarrier = window.ytInitialPlayerResponse;
-        if (currentCarrier !== undefined && initialResponseValue(currentCarrier, NEUTRALIZED_KEYS) !== currentCarrier) {
+        if (
+          currentCarrier !== undefined &&
+          (initialResponseValue(currentCarrier, NEUTRALIZED_KEYS) !== currentCarrier ||
+            neutralizeEnforcement(currentCarrier) !== currentCarrier)
+        ) {
           healRaw(window, currentCarrier, NEUTRALIZED_KEYS, status, network);
         }
         return document.getElementById(PLAYER_ELEMENT_ID) ?? undefined;

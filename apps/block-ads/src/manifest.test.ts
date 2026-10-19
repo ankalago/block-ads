@@ -23,8 +23,8 @@ describe("manifest MV3", () => {
     ]);
   });
 
-  it("registra versión 1.0.5, descripción, iconos, service worker, popup y permisos", () => {
-    expect(manifest.version).toBe("1.0.5");
+  it("registra versión 1.0.6, descripción, iconos, service worker, popup y permisos", () => {
+    expect(manifest.version).toBe("1.0.6");
     expect(manifest.description.length).toBeGreaterThan(20);
     expect(manifest.icons).toEqual({
       "16": "icon-16.png",

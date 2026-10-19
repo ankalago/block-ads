@@ -82,4 +82,33 @@ export const hasEnforcementWall = (payload: unknown): boolean => {
  * Conserva intactos `playabilityStatus` y `auxiliaryUi`: la recuperación del muro vivo en el
  * reproductor la ejecuta `player-rescue` mediante `loadVideoById` con el `videoId` de la URL.
  */
-export const neutralizeEnforcement = (payload: JsonValue | undefined): JsonValue | undefined => payload;
+const rewriteObjectWall = (payload: JsonObject): JsonObject => {
+  const playability = payload[PLAYABILITY_KEY];
+  const wallHere = hasEnforcementWall(payload) && isJsonObject(playability);
+  const entries = Object.entries(payload);
+  const mappedEntries = entries.map(([entryKey, entryValue]): readonly [string, JsonValue] => {
+    if (entryKey === PLAYABILITY_KEY && wallHere && isJsonObject(playability)) {
+      const screenless = Object.fromEntries(Object.entries(playability).filter(([key]) => key !== ERROR_SCREEN_KEY));
+      return [entryKey, { ...screenless, status: PLAYABLE_STATUS }];
+    }
+    return [entryKey, neutralizeEnforcement(entryValue) ?? null];
+  });
+
+  const changed = mappedEntries.some(([, nextValue], index) => nextValue !== entries[index]?.[1]);
+  return changed ? Object.fromEntries(mappedEntries) : payload;
+};
+
+/**
+ * Reescribe recursivamente `playabilityStatus.status` a `"OK"` y elimina `errorScreen` (tanto en
+ * raíz como dentro de `playerResponse` de `/youtubei/v1/get_watch`) sin tocar `auxiliaryUi`. Así
+ * `yt-playlist-manager` no ve `status: "ERROR"` al entrar a un Mix desde el Home y no salta de
+ * canción, mientras `consumePendingRescue` dispara `loadVideoById` con el `videoId` de la URL.
+ */
+export const neutralizeEnforcement = (payload: JsonValue | undefined): JsonValue | undefined => {
+  if (Array.isArray(payload)) {
+    const mapped = payload.map((item) => neutralizeEnforcement(item) ?? null);
+    return mapped.every((item, index) => item === payload[index]) ? payload : mapped;
+  }
+  if (!isJsonObject(payload)) return payload;
+  return rewriteObjectWall(payload);
+};
