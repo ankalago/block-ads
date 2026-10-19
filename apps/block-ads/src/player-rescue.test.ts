@@ -395,8 +395,8 @@ describe("el ciclo de rescate acotado", () => {
     expect(status.playerRescues).toBe(0);
   });
 
-  it("saltan al final del anuncio y pulsan el botón de skip cuando el player tiene ad-showing", () => {
-    const video = { duration: 15, currentTime: 1, muted: false };
+  it("pulsan el botón de skip sin tocar video.currentTime para no forzar el salto al siguiente video", () => {
+    const video = { duration: 225, currentTime: 1, muted: false };
     const skipButton = { click: vi.fn() };
     const adPlayer: RescuePlayer = {
       classList: { contains: (token) => token === "ad-showing" },
@@ -412,13 +412,34 @@ describe("el ciclo de rescate acotado", () => {
     };
 
     expect(skipActiveAd(organicPlayer)).toBe(false);
+    expect(skipActiveAd(adPlayer)).toBe(true);
     expect(video.currentTime).toBe(1);
     expect(video.muted).toBe(false);
-
-    expect(skipActiveAd(adPlayer)).toBe(true);
-    expect(video.muted).toBe(true);
-    expect(video.currentTime).toBe(15);
     expect(skipButton.click).toHaveBeenCalledTimes(1);
+  });
+
+  it("rescatan también cuando el transport o el carrier acaban de reescribir un muro a OK (consumePendingRescue)", () => {
+    const status = rescueStatusSeed();
+    const attempt = vi.fn();
+    const pending = { value: true };
+    startPlayerRescue(
+      () => cleanPlayer("TPw7g2ZkpZw"),
+      attempt,
+      status,
+      PLAYER_RESCUE_CONFIG,
+      undefined,
+      () => {
+        if (!pending.value) return false;
+        pending.value = false;
+        return true;
+      },
+    );
+
+    vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.intervalMs);
+
+    expect(status.rescueWallSeen).toBe(true);
+    expect(status.playerRescues).toBe(1);
+    expect(attempt).toHaveBeenCalledWith(expect.anything(), "TPw7g2ZkpZw");
   });
 
   it("fijan el id del elemento del player para que no se renombre por accidente", () => {

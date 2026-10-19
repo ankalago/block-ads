@@ -560,6 +560,17 @@ export const installInnerTubePatch = (): CarrierStatus => {
       }
     };
 
+    const rescueState = { lastHandledEnforcement: 0, carrierRescueConsumed: false };
+
+    const consumePendingRescue = (): boolean => {
+      const fromCarrier = status.wallRewritten && !rescueState.carrierRescueConsumed;
+      const fromNetwork = network.enforcement > rescueState.lastHandledEnforcement;
+      if (!fromCarrier && !fromNetwork) return false;
+      rescueState.carrierRescueConsumed = status.wallRewritten;
+      rescueState.lastHandledEnforcement = network.enforcement;
+      return true;
+    };
+
     const rescuePlayer = (player: RescuePlayer, videoId: string): void => {
       clearOuterErrorOverlay();
       player.loadVideoById?.(videoId);
@@ -587,6 +598,7 @@ export const installInnerTubePatch = (): CarrierStatus => {
         document.addEventListener("play", handler, true);
         document.addEventListener("pointerdown", handler, true);
       },
+      consumePendingRescue,
     );
   }
 

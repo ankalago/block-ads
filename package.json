@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "turbo build",
-    "pack:extension": "pnpm build --force && rm -f apps/block-ads/block-ads-v*.zip && (cd apps/block-ads/dist && zip -r -q ../block-ads-v1.0.3.zip .)",
+    "pack:extension": "pnpm build --force && rm -f apps/block-ads/block-ads-v*.zip && (cd apps/block-ads/dist && zip -r -q ../block-ads-v1.0.4.zip .)",
     "check": "biome check --write .",
     "check:ci": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "format": "biome format --write .",

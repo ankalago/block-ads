@@ -126,27 +126,11 @@ export const rescueVideoId = (player: RescuePlayer, locationHref?: string): stri
   return knownVideoId(player, locationHref);
 };
 
-type MutableVideoCandidate = {
-  duration?: unknown;
-  currentTime?: unknown;
-  muted?: unknown;
-};
-
 type ClickableCandidate = {
   click?: unknown;
 };
 
-const isMutableVideo = (value: unknown): value is MutableVideoCandidate => typeof value === "object" && value !== null;
-
 const isClickable = (value: unknown): value is ClickableCandidate => typeof value === "object" && value !== null;
-
-const fastForwardAdVideo = (video: unknown): void => {
-  if (!isMutableVideo(video)) return;
-  const duration = video.duration;
-  if (typeof duration !== "number" || !Number.isFinite(duration) || duration <= 0) return;
-  video.muted = true;
-  video.currentTime = duration;
-};
 
 const clickSkipButton = (button: unknown): void => {
   if (!isClickable(button)) return;
@@ -155,14 +139,15 @@ const clickSkipButton = (button: unknown): void => {
 
 /**
  * Backstop en el reproductor: si un anuncio instream llega a activarse (`.ad-showing` o
- * `.ad-interrupting` en `#movie_player`), silencia y adelanta el `<video>` al final y pulsa
- * cualquier botón de skip disponible. Nunca toca un vídeo orgánico.
+ * `.ad-interrupting` en `#movie_player`), pulsa cualquier botón de skip disponible.
+ * PROHIBIDO asignar `video.currentTime = video.duration`: cuando la poda vació `adPlacements`, el
+ * `<video>` principal contiene el tema orgánico y saltar a `duration` dispara `ended` y pasa al
+ * siguiente video tras 1 segundo.
  */
 export const skipActiveAd = (player: RescuePlayer): boolean => {
   const isAdShowing = AD_SHOWING_CLASSES.some((token) => player.classList?.contains(token) === true);
   if (!isAdShowing) return false;
 
-  fastForwardAdVideo(player.querySelector?.("video"));
   SKIP_BUTTON_SELECTORS.forEach((selector) => {
     clickSkipButton(player.querySelector?.(selector));
   });
@@ -196,6 +181,7 @@ export const startPlayerRescue = (
   status: RescueStatus,
   config: PlayerRescueConfig = PLAYER_RESCUE_CONFIG,
   subscribeToNudges?: NudgeSubscribe,
+  consumePendingRescue?: () => boolean,
 ): void => {
   const installedAt = Date.now();
   const state: {
@@ -234,7 +220,9 @@ export const startPlayerRescue = (
     syncCurrentVideo(currentVideoId);
 
     const response = player.getPlayerResponse?.();
-    if (response === undefined || !hasEnforcementWall(response)) return;
+    const wallInPlayer = response !== undefined && hasEnforcementWall(response);
+    const pendingFromRewrite = consumePendingRescue?.() === true;
+    if (!wallInPlayer && !pendingFromRewrite) return;
 
     status.rescueWallSeen = true;
     tryRescue(player, currentVideoId ?? state.lastVideoId);
