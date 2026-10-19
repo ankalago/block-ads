@@ -405,6 +405,30 @@ describe("el ciclo de rescate acotado", () => {
     expect(skipButton.click).toHaveBeenCalledTimes(1);
   });
 
+  it("rescatan también cuando el transport o el carrier acaban de reescribir un muro a OK (consumePendingRescue)", () => {
+    const status = rescueStatusSeed();
+    const attempt = vi.fn();
+    const pending = { value: true };
+    startPlayerRescue(
+      () => cleanPlayer("v7K1QLyZpJ0"),
+      attempt,
+      status,
+      PLAYER_RESCUE_CONFIG,
+      undefined,
+      () => {
+        if (!pending.value) return false;
+        pending.value = false;
+        return true;
+      },
+    );
+
+    vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.intervalMs);
+
+    expect(status.rescueWallSeen).toBe(true);
+    expect(status.playerRescues).toBe(1);
+    expect(attempt).toHaveBeenCalledWith(expect.anything(), "v7K1QLyZpJ0");
+  });
+
   it("fijan el id del elemento del player para que no se renombre por accidente", () => {
     expect(PLAYER_ELEMENT_ID).toBe("movie_player");
   });

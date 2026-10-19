@@ -345,7 +345,7 @@ describe("el muro de enforcement en el carrier inline", () => {
     },
   });
 
-  it("conservan intacto el ERROR del muro en el carrier para que player-rescue recargue un stream sano", () => {
+  it("reescriben el muro del carrier a OK y marcan wallRewritten para que player-rescue pida el stream sano", () => {
     const host: CarrierHost = {};
     const status = carrierStatusSeed();
     const network = networkStatusSeed();
@@ -354,9 +354,9 @@ describe("el muro de enforcement en el carrier inline", () => {
     host.ytInitialPlayerResponse = wallCarrier();
 
     const playability = view(key(host.ytInitialPlayerResponse, "playabilityStatus"));
-    expect(status.wallRewritten).toBe(false);
-    expect(playability.status).toBe("ERROR");
-    expect("errorScreen" in playability).toBe(true);
+    expect(status.wallRewritten).toBe(true);
+    expect(playability.status).toBe("OK");
+    expect("errorScreen" in playability).toBe(false);
   });
 
   it("conservan intacto auxiliaryUi en el carrier para no provocar el fallo 282054944 en el player", () => {

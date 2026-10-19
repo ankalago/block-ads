@@ -548,26 +548,44 @@ export const installInnerTubePatch = (): CarrierStatus => {
   // nudges corren fuera de la cadena de timers porque Chrome congela los timers de tabs en segundo
   // plano por completo: al volver el foco y al intentar reproducir, se interroga al player al acto.
   if (typeof document !== "undefined") {
-    const rescueAndPreservePlaylist = (player: RescuePlayer, videoId: string): void => {
+    const clearOuterErrorOverlay = (): void => {
+      if (typeof HTMLElement === "undefined") return;
+      const watchFlexy = document.querySelector?.("ytd-watch-flexy[player-unavailable]");
+      if (watchFlexy instanceof HTMLElement) {
+        watchFlexy.removeAttribute("player-unavailable");
+      }
+      const errorScreen = document.querySelector?.("yt-playability-error-supported-renderers#error-screen");
+      if (errorScreen instanceof HTMLElement) {
+        errorScreen.style.display = "none";
+      }
+    };
+
+    const rescueState = { lastHandledEnforcement: 0, carrierRescueConsumed: false };
+
+    const consumePendingRescue = (): boolean => {
+      const fromCarrier = status.wallRewritten && !rescueState.carrierRescueConsumed;
+      const fromNetwork = network.enforcement > rescueState.lastHandledEnforcement;
+      if (!fromCarrier && !fromNetwork) return false;
+      rescueState.carrierRescueConsumed = status.wallRewritten;
+      rescueState.lastHandledEnforcement = network.enforcement;
+      return true;
+    };
+
+    const rescuePlayer = (player: RescuePlayer, videoId: string): void => {
+      clearOuterErrorOverlay();
       player.loadVideoById?.(videoId);
-      if (!window.location?.href?.includes("&list=") || player.getPlaylistId?.() !== null) return;
-      const manager = document.querySelector?.("yt-playlist-manager");
-      if (typeof HTMLElement === "undefined" || !(manager instanceof HTMLElement)) return;
-      const data = manager.getPlaylistData?.();
-      if (data === undefined) return;
-      manager.setPlaylistData?.(data);
-      manager.setPlayerPlaybackControlData?.({ playlistPanelRenderer: data });
     };
 
     startPlayerRescue(
       () => {
+        clearOuterErrorOverlay();
         const currentCarrier = window.ytInitialPlayerResponse;
         if (currentCarrier !== undefined && initialResponseValue(currentCarrier, NEUTRALIZED_KEYS) !== currentCarrier) {
           healRaw(window, currentCarrier, NEUTRALIZED_KEYS, status, network);
         }
         return document.getElementById(PLAYER_ELEMENT_ID) ?? undefined;
       },
-      rescueAndPreservePlaylist,
+      rescuePlayer,
       status,
       PLAYER_RESCUE_CONFIG,
       (handler) => {
@@ -580,6 +598,7 @@ export const installInnerTubePatch = (): CarrierStatus => {
         document.addEventListener("play", handler, true);
         document.addEventListener("pointerdown", handler, true);
       },
+      consumePendingRescue,
     );
   }
 

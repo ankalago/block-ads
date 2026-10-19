@@ -78,4 +78,39 @@ export const hasEnforcementWall = (payload: unknown): boolean => {
  *   aborte la inicialización con `Something went wrong. Please try again later. (282054944)`.
  * La recuperación ante un muro real la ejecuta `player-rescue` mediante `loadVideoById`.
  */
-export const neutralizeEnforcement = (payload: JsonValue | undefined): JsonValue | undefined => payload;
+const rewriteObjectWall = (payload: JsonObject): JsonObject => {
+  const playability = payload[PLAYABILITY_KEY];
+  const rewrittenPlayability =
+    hasEnforcementWall(payload) && isJsonObject(playability)
+      ? {
+          ...Object.fromEntries(Object.entries(playability).filter(([entryKey]) => entryKey !== ERROR_SCREEN_KEY)),
+          status: PLAYABLE_STATUS,
+        }
+      : playability;
+
+  const nestedPlayer = payload.playerResponse;
+  const rewrittenNested = isJsonObject(nestedPlayer) ? rewriteObjectWall(nestedPlayer) : nestedPlayer;
+
+  if (rewrittenPlayability === playability && rewrittenNested === nestedPlayer) return payload;
+
+  return {
+    ...payload,
+    ...(rewrittenPlayability !== playability ? { [PLAYABILITY_KEY]: rewrittenPlayability } : {}),
+    ...(rewrittenNested !== nestedPlayer ? { playerResponse: rewrittenNested } : {}),
+  };
+};
+
+/**
+ * Reescribe `playabilityStatus.status` a `"OK"` y quita `errorScreen` (tanto en raíz como dentro de
+ * `playerResponse` de `/youtubei/v1/get_watch`) sin tocar `auxiliaryUi`. Así `ytd-watch-flexy` no
+ * muestra el cartel ni activa el salto de 10 s en playlists, mientras `innertube.ts` señala el
+ * rescate pendiente para que `player-rescue` pida el stream sano con `loadVideoById`.
+ */
+export const neutralizeEnforcement = (payload: JsonValue | undefined): JsonValue | undefined => {
+  if (Array.isArray(payload)) {
+    const mapped = payload.map((item) => neutralizeEnforcement(item) ?? null);
+    return mapped.every((item, index) => item === payload[index]) ? payload : mapped;
+  }
+  if (!isJsonObject(payload)) return payload;
+  return rewriteObjectWall(payload);
+};
