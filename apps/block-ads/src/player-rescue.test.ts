@@ -418,28 +418,21 @@ describe("el ciclo de rescate acotado", () => {
     expect(skipButton.click).toHaveBeenCalledTimes(1);
   });
 
-  it("rescatan también cuando el transport o el carrier acaban de reescribir un muro a OK (consumePendingRescue)", () => {
+  it("rescatan un nuevo videoId de inmediato sin esperar el retryGapMs del video anterior", () => {
     const status = rescueStatusSeed();
     const attempt = vi.fn();
-    const pending = { value: true };
-    startPlayerRescue(
-      () => cleanPlayer("TPw7g2ZkpZw"),
-      attempt,
-      status,
-      PLAYER_RESCUE_CONFIG,
-      undefined,
-      () => {
-        if (!pending.value) return false;
-        pending.value = false;
-        return true;
-      },
-    );
+    const current = { videoId: "videoUno111" };
+    startPlayerRescue(() => walledPlayer(current.videoId), attempt, status);
 
     vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.intervalMs);
-
-    expect(status.rescueWallSeen).toBe(true);
     expect(status.playerRescues).toBe(1);
-    expect(attempt).toHaveBeenCalledWith(expect.anything(), "TPw7g2ZkpZw");
+    expect(attempt).toHaveBeenLastCalledWith(expect.anything(), "videoUno111");
+
+    // Cambia a otro video antes de que venza retryGapMs (1000ms < 2000ms).
+    current.videoId = "videoDos222";
+    vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.intervalMs);
+    expect(status.playerRescues).toBe(2);
+    expect(attempt).toHaveBeenLastCalledWith(expect.anything(), "videoDos222");
   });
 
   it("fijan el id del elemento del player para que no se renombre por accidente", () => {

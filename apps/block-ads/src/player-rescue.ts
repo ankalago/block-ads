@@ -181,7 +181,6 @@ export const startPlayerRescue = (
   status: RescueStatus,
   config: PlayerRescueConfig = PLAYER_RESCUE_CONFIG,
   subscribeToNudges?: NudgeSubscribe,
-  consumePendingRescue?: () => boolean,
 ): void => {
   const installedAt = Date.now();
   const state: {
@@ -200,6 +199,7 @@ export const startPlayerRescue = (
     if (videoId === undefined || videoId === state.lastVideoId) return;
     state.lastVideoId = videoId;
     state.attemptsForVideo = 0;
+    state.lastAttemptAt = -config.retryGapMs;
     state.firstSeenAt = Date.now();
   };
 
@@ -220,9 +220,7 @@ export const startPlayerRescue = (
     syncCurrentVideo(currentVideoId);
 
     const response = player.getPlayerResponse?.();
-    const wallInPlayer = response !== undefined && hasEnforcementWall(response);
-    const pendingFromRewrite = consumePendingRescue?.() === true;
-    if (!wallInPlayer && !pendingFromRewrite) return;
+    if (response === undefined || !hasEnforcementWall(response)) return;
 
     status.rescueWallSeen = true;
     tryRescue(player, currentVideoId ?? state.lastVideoId);
