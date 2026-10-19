@@ -51,24 +51,14 @@ const auxiliaryPopupPayload = () => ({
 });
 
 describe("la regla de enforcement sobre respuestas del player", () => {
-  it("reescribe playabilityStatus a OK y quita errorScreen para que ytd-watch-flexy no muestre el cartel ni salte de video a los 10s", () => {
+  it("conserva intacto un ERROR de enforcement para que player-rescue lo detecte y recargue con el videoId de la URL", () => {
     const flagged = wallPayload();
     const result = neutralizeEnforcement(flagged);
     const playability = playabilityOf(result);
 
-    expect(playability.status).toBe("OK");
-    expect("errorScreen" in playability).toBe(false);
-    expect(playability.miniplayer).toEqual({ miniplayerRenderer: { playbackMode: "PLAYBACK_MODE_ALLOW" } });
-  });
-
-  it("reescribe también playerResponse anidado en respuestas de /youtubei/v1/get_watch (playlists)", () => {
-    const getWatchPayload = [{ playerResponse: wallPayload() }];
-    const result = neutralizeEnforcement(getWatchPayload);
-    const first = Array.isArray(result) ? view(result[0]) : {};
-    const playability = playabilityOf(first.playerResponse);
-
-    expect(playability.status).toBe("OK");
-    expect("errorScreen" in playability).toBe(false);
+    expect(result).toBe(flagged);
+    expect(playability.status).toBe("ERROR");
+    expect(hasEnforcementWall(result)).toBe(true);
   });
 
   it("conserva intacto auxiliaryUi para no disparar el error 282054944 (p=player_error1) en base.js", () => {

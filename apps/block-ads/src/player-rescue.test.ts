@@ -58,6 +58,22 @@ describe("detección del video a rescatar", () => {
     expect(videoIdOfLocation("https://www.youtube.com/")).toBeUndefined();
   });
 
+  it("priorizan el videoId de la URL sobre un video_id rancio de getVideoData() al cambiar de video en una playlist", () => {
+    const stalePlaylistPlayer: RescuePlayer = {
+      getPlayerResponse: () => ({
+        playabilityStatus: { status: "ERROR", errorScreen: { enforcementMessageViewModel: {} } },
+      }),
+      // En SPA/Mix, cuando el video #2 (_PXXW-Y1Es4) cae en el muro, getVideoData() todavía retiene
+      // el video_id del video #1 (z_-sLv7g-0Q). Usar getVideoData() antes que la URL cambiaba el
+      // reproductor de vuelta al video #1 tras 2 segundos.
+      getVideoData: () => ({ video_id: "z_-sLv7g-0Q" }),
+    };
+
+    expect(
+      rescueVideoId(stalePlaylistPlayer, "https://www.youtube.com/watch?v=_PXXW-Y1Es4&list=RDz_-sLv7g-0Q&index=2"),
+    ).toBe("_PXXW-Y1Es4");
+  });
+
   it("no rescatan una respuesta limpia ni un error ajeno al muro", () => {
     const broken: RescuePlayer = {
       getPlayerResponse: () => ({
@@ -403,30 +419,6 @@ describe("el ciclo de rescate acotado", () => {
     expect(video.muted).toBe(true);
     expect(video.currentTime).toBe(15);
     expect(skipButton.click).toHaveBeenCalledTimes(1);
-  });
-
-  it("rescatan también cuando el transport o el carrier acaban de reescribir un muro a OK (consumePendingRescue)", () => {
-    const status = rescueStatusSeed();
-    const attempt = vi.fn();
-    const pending = { value: true };
-    startPlayerRescue(
-      () => cleanPlayer("v7K1QLyZpJ0"),
-      attempt,
-      status,
-      PLAYER_RESCUE_CONFIG,
-      undefined,
-      () => {
-        if (!pending.value) return false;
-        pending.value = false;
-        return true;
-      },
-    );
-
-    vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.intervalMs);
-
-    expect(status.rescueWallSeen).toBe(true);
-    expect(status.playerRescues).toBe(1);
-    expect(attempt).toHaveBeenCalledWith(expect.anything(), "v7K1QLyZpJ0");
   });
 
   it("fijan el id del elemento del player para que no se renombre por accidente", () => {

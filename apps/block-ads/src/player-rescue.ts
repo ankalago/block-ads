@@ -115,9 +115,9 @@ export const videoIdOfLocation = (hrefOrSearch?: string): string | undefined => 
 };
 
 const knownVideoId = (player: RescuePlayer, locationHref?: string): string | undefined =>
+  videoIdOfLocation(locationHref) ??
   videoIdOfResponse(player.getPlayerResponse?.()) ??
-  videoIdOfData(player.getVideoData?.()) ??
-  videoIdOfLocation(locationHref);
+  videoIdOfData(player.getVideoData?.());
 
 /** El video a rescatar solo si la respuesta viva del player trae el muro; si no, `undefined`. */
 export const rescueVideoId = (player: RescuePlayer, locationHref?: string): string | undefined => {
@@ -196,7 +196,6 @@ export const startPlayerRescue = (
   status: RescueStatus,
   config: PlayerRescueConfig = PLAYER_RESCUE_CONFIG,
   subscribeToNudges?: NudgeSubscribe,
-  consumePendingRescue?: () => boolean,
 ): void => {
   const installedAt = Date.now();
   const state: {
@@ -235,9 +234,7 @@ export const startPlayerRescue = (
     syncCurrentVideo(currentVideoId);
 
     const response = player.getPlayerResponse?.();
-    const wallInPlayer = response !== undefined && hasEnforcementWall(response);
-    const pendingFromRewrite = consumePendingRescue?.() === true;
-    if (!wallInPlayer && !pendingFromRewrite) return;
+    if (response === undefined || !hasEnforcementWall(response)) return;
 
     status.rescueWallSeen = true;
     tryRescue(player, currentVideoId ?? state.lastVideoId);
