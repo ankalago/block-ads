@@ -25,6 +25,7 @@ export type RescuePlayer = {
   getPlayerResponse?: () => JsonValue | undefined;
   getVideoData?: () => JsonValue | undefined;
   loadVideoById?: (videoId: string) => void;
+  getPlaylistId?: () => string | null | undefined;
   classList?: { readonly contains: (token: string) => boolean };
   querySelector?: (selector: string) => RescueDomNode | null | undefined;
 };
@@ -67,6 +68,10 @@ declare global {
     getPlayerResponse?: () => JsonValue | undefined;
     getVideoData?: () => JsonValue | undefined;
     loadVideoById?: (videoId: string) => void;
+    getPlaylistId?: () => string | null | undefined;
+    getPlaylistData?: () => JsonValue | undefined;
+    setPlaylistData?: (data: JsonValue) => void;
+    setPlayerPlaybackControlData?: (data: { readonly playlistPanelRenderer: JsonValue }) => void;
   }
 }
 
@@ -193,18 +198,32 @@ export const startPlayerRescue = (
   subscribeToNudges?: NudgeSubscribe,
 ): void => {
   const installedAt = Date.now();
-  const state: { lastAttemptAt: number; firstSeenAt: number; lastVideoId: string | undefined } = {
+  const state: {
+    lastAttemptAt: number;
+    firstSeenAt: number;
+    lastVideoId: string | undefined;
+    attemptsForVideo: number;
+  } = {
     lastAttemptAt: -config.retryGapMs,
     firstSeenAt: -1,
     lastVideoId: undefined,
+    attemptsForVideo: 0,
+  };
+
+  const syncCurrentVideo = (videoId: string | undefined): void => {
+    if (videoId === undefined || videoId === state.lastVideoId) return;
+    state.lastVideoId = videoId;
+    state.attemptsForVideo = 0;
+    state.firstSeenAt = Date.now();
   };
 
   const tryRescue = (player: RescuePlayer, videoId: string | undefined): void => {
     if (videoId === undefined) return;
-    if (status.playerRescues >= config.maxAttempts) return;
+    if (state.attemptsForVideo >= config.maxAttempts) return;
     if (Date.now() - state.lastAttemptAt < config.retryGapMs) return;
 
     state.lastAttemptAt = Date.now();
+    state.attemptsForVideo += 1;
     status.playerRescues += 1;
     attempt(player, videoId);
   };
@@ -212,7 +231,7 @@ export const startPlayerRescue = (
   const inspectPlayer = (player: RescuePlayer): void => {
     skipActiveAd(player);
     const currentVideoId = knownVideoId(player);
-    if (currentVideoId !== undefined) state.lastVideoId = currentVideoId;
+    syncCurrentVideo(currentVideoId);
 
     const response = player.getPlayerResponse?.();
     if (response === undefined || !hasEnforcementWall(response)) return;

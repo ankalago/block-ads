@@ -99,7 +99,7 @@ describe("el ciclo de rescate acotado", () => {
     expect(status.playerRescues).toBe(1);
   });
 
-  it("no pasan del máximo de intentos aunque el muro siga", () => {
+  it("no pasan del máximo de intentos sobre un mismo videoId aunque el muro siga", () => {
     const status = rescueStatusSeed();
     const attempt = vi.fn();
     startPlayerRescue(() => walledPlayer(), attempt, status);
@@ -108,6 +108,28 @@ describe("el ciclo de rescate acotado", () => {
 
     expect(status.playerRescues).toBe(PLAYER_RESCUE_CONFIG.maxAttempts);
     expect(attempt).toHaveBeenCalledTimes(PLAYER_RESCUE_CONFIG.maxAttempts);
+  });
+
+  it("reinician el cupo de intentos y la ventana al cambiar de videoId en una playlist (caso index=27)", () => {
+    const status = rescueStatusSeed();
+    const attempt = vi.fn();
+    const current = { videoId: "videoUno111" };
+    startPlayerRescue(() => walledPlayer(current.videoId), attempt, status);
+
+    // Agota los 2 intentos en el primer video de la sesión.
+    vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.retryGapMs * 3);
+    expect(status.playerRescues).toBe(PLAYER_RESCUE_CONFIG.maxAttempts);
+
+    // Avanza casi hasta el final de la ventana inicial y cambia al video #27 (v7K1QLyZpJ0).
+    vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.watchMs - PLAYER_RESCUE_CONFIG.retryGapMs * 4);
+    current.videoId = "v7K1QLyZpJ0";
+
+    vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.intervalMs);
+    expect(status.playerRescues).toBe(PLAYER_RESCUE_CONFIG.maxAttempts + 1);
+    expect(attempt).toHaveBeenLastCalledWith(
+      expect.objectContaining({ getPlayerResponse: expect.any(Function) }),
+      "v7K1QLyZpJ0",
+    );
   });
 
   it("no repiten el rescate dentro de la espera entre intentos", () => {

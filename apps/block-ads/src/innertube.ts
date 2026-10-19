@@ -1,6 +1,12 @@
 import { neutralizeEnforcement } from "./enforcement.ts";
 import { NEUTRALIZED_KEYS, PLAYER_RESCUE_CONFIG, PRUNE_ENDPOINTS, PRUNE_RULES } from "./innertube.config.ts";
-import { PLAYER_ELEMENT_ID, type RescueStatus, rescueStatusSeed, startPlayerRescue } from "./player-rescue.ts";
+import {
+  PLAYER_ELEMENT_ID,
+  type RescuePlayer,
+  type RescueStatus,
+  rescueStatusSeed,
+  startPlayerRescue,
+} from "./player-rescue.ts";
 
 /** JSON de una respuesta de InnerTube: el árbol que recorre la neutralización. */
 export type JsonObject = { readonly [key: string]: JsonValue };
@@ -542,14 +548,26 @@ export const installInnerTubePatch = (): CarrierStatus => {
   // nudges corren fuera de la cadena de timers porque Chrome congela los timers de tabs en segundo
   // plano por completo: al volver el foco y al intentar reproducir, se interroga al player al acto.
   if (typeof document !== "undefined") {
+    const rescueAndPreservePlaylist = (player: RescuePlayer, videoId: string): void => {
+      player.loadVideoById?.(videoId);
+      if (!window.location?.href?.includes("&list=") || player.getPlaylistId?.() !== null) return;
+      const manager = document.querySelector?.("yt-playlist-manager");
+      if (typeof HTMLElement === "undefined" || !(manager instanceof HTMLElement)) return;
+      const data = manager.getPlaylistData?.();
+      if (data === undefined) return;
+      manager.setPlaylistData?.(data);
+      manager.setPlayerPlaybackControlData?.({ playlistPanelRenderer: data });
+    };
+
     startPlayerRescue(
       () => {
-        if (window.ytInitialPlayerResponse !== undefined) {
-          healRaw(window, window.ytInitialPlayerResponse, NEUTRALIZED_KEYS, status, network);
+        const currentCarrier = window.ytInitialPlayerResponse;
+        if (currentCarrier !== undefined && initialResponseValue(currentCarrier, NEUTRALIZED_KEYS) !== currentCarrier) {
+          healRaw(window, currentCarrier, NEUTRALIZED_KEYS, status, network);
         }
         return document.getElementById(PLAYER_ELEMENT_ID) ?? undefined;
       },
-      (player, videoId) => player.loadVideoById?.(videoId),
+      rescueAndPreservePlaylist,
       status,
       PLAYER_RESCUE_CONFIG,
       (handler) => {
