@@ -10,6 +10,7 @@ import { PLAYER_RESCUE_CONFIG, type PlayerRescueConfig } from "./innertube.confi
  * de punta a punta, con sesión SABR nueva — y esa respuesta vuelve por el transport ya podada.
  */
 export const PLAYER_ELEMENT_ID = "movie_player";
+export const AUTOPLAY_JUMP_MARKER = "navigateToAutoplayWatchEndpoint_";
 
 type JsonValue = string | number | boolean | null | { readonly [key: string]: JsonValue } | readonly JsonValue[];
 type JsonObject = { readonly [key: string]: JsonValue };
@@ -153,6 +154,31 @@ export const skipActiveAd = (player: RescuePlayer): boolean => {
   });
 
   return true;
+};
+
+const isVideoNearEnd = (player: RescuePlayer | undefined): boolean => {
+  const video = player?.querySelector?.("video");
+  if (typeof video !== "object" || video === null) return false;
+  const duration = video.duration;
+  const currentTime = video.currentTime;
+  return (
+    typeof duration === "number" &&
+    typeof currentTime === "number" &&
+    Number.isFinite(duration) &&
+    Number.isFinite(currentTime) &&
+    duration > 10 &&
+    currentTime >= duration - 3
+  );
+};
+
+/**
+ * Detecta el salto falso de playlist/Mix (`navigateToAutoplayWatchEndpoint_`) disparado por YouTube
+ * cuando el primer request viene flagueado. Solo permite ese salto cuando el `<video>` realmente
+ * llegó al final del tema (`currentTime >= duration - 3`).
+ */
+export const shouldBlockAutoplayJump = (stack: string | undefined, player: RescuePlayer | undefined): boolean => {
+  if (typeof stack !== "string" || !stack.includes(AUTOPLAY_JUMP_MARKER)) return false;
+  return !isVideoNearEnd(player);
 };
 
 /**

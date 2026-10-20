@@ -68,7 +68,7 @@ export const EXTENSION_ICONS = {
 export const manifest = {
   manifest_version: 3,
   name: "Block Ads",
-  version: "1.0.6",
+  version: "1.0.7",
   description:
     "Bloqueador de anuncios ligero y rápido para YouTube en Chrome (Manifest V3): sin pre-rolls, sin banners y sin interrupciones.",
   minimum_chrome_version: "111",

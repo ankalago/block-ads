@@ -5,7 +5,9 @@ import {
   type RescuePlayer,
   type RescueStatus,
   rescueStatusSeed,
+  shouldBlockAutoplayJump,
   startPlayerRescue,
+  videoIdOfLocation,
 } from "./player-rescue.ts";
 
 /** JSON de una respuesta de InnerTube: el árbol que recorre la neutralización. */
@@ -560,20 +562,34 @@ export const installInnerTubePatch = (): CarrierStatus => {
       }
     };
 
+    const autoplayRescued = new Set<string>();
+
     const rescuePlayer = (player: RescuePlayer, videoId: string): void => {
       clearOuterErrorOverlay();
+      autoplayRescued.add(videoId);
       player.loadVideoById?.(videoId);
     };
+
+    const guardAutoplayJump = (event: Event): void => {
+      const player = document.getElementById(PLAYER_ELEMENT_ID) ?? undefined;
+      if (!shouldBlockAutoplayJump(new Error().stack, player)) return;
+      event.stopImmediatePropagation();
+      event.preventDefault();
+      const videoId = videoIdOfLocation();
+      if (player === undefined || videoId === undefined || autoplayRescued.has(videoId)) return;
+      status.rescueWallSeen = true;
+      status.playerRescues += 1;
+      rescuePlayer(player, videoId);
+    };
+
+    window.addEventListener?.("yt-navigate", guardAutoplayJump, true);
+    document.addEventListener("yt-navigate", guardAutoplayJump, true);
 
     startPlayerRescue(
       () => {
         clearOuterErrorOverlay();
         const currentCarrier = window.ytInitialPlayerResponse;
-        if (
-          currentCarrier !== undefined &&
-          (initialResponseValue(currentCarrier, NEUTRALIZED_KEYS) !== currentCarrier ||
-            neutralizeEnforcement(currentCarrier) !== currentCarrier)
-        ) {
+        if (currentCarrier !== undefined && initialResponseValue(currentCarrier, NEUTRALIZED_KEYS) !== currentCarrier) {
           healRaw(window, currentCarrier, NEUTRALIZED_KEYS, status, network);
         }
         return document.getElementById(PLAYER_ELEMENT_ID) ?? undefined;

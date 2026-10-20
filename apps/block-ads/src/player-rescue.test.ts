@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PLAYER_RESCUE_CONFIG } from "./innertube.config.ts";
 import {
+  AUTOPLAY_JUMP_MARKER,
   PLAYER_ELEMENT_ID,
   type RescuePlayer,
   rescueStatusSeed,
   rescueVideoId,
+  shouldBlockAutoplayJump,
   skipActiveAd,
   startPlayerRescue,
   videoIdOfLocation,
@@ -433,6 +435,23 @@ describe("el ciclo de rescate acotado", () => {
     vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.intervalMs);
     expect(status.playerRescues).toBe(2);
     expect(attempt).toHaveBeenLastCalledWith(expect.anything(), "videoDos222");
+  });
+
+  it("bloquean navigateToAutoplayWatchEndpoint_ cuando el video no ha llegado al final y lo permiten al terminar", () => {
+    const autoplayStack = "Error\n    at _.q.navigateToAutoplayWatchEndpoint_ (kevlar_base_module:36055:331)";
+    const clickStack = "Error\n    at on:click (kevlar_base_module:38824:384)";
+    const startingPlayer: RescuePlayer = {
+      querySelector: (selector) => (selector === "video" ? { duration: 220, currentTime: 0.5 } : null),
+    };
+    const finishedPlayer: RescuePlayer = {
+      querySelector: (selector) => (selector === "video" ? { duration: 220, currentTime: 219 } : null),
+    };
+
+    expect(AUTOPLAY_JUMP_MARKER).toBe("navigateToAutoplayWatchEndpoint_");
+    expect(shouldBlockAutoplayJump(autoplayStack, startingPlayer)).toBe(true);
+    expect(shouldBlockAutoplayJump(autoplayStack, undefined)).toBe(true);
+    expect(shouldBlockAutoplayJump(autoplayStack, finishedPlayer)).toBe(false);
+    expect(shouldBlockAutoplayJump(clickStack, startingPlayer)).toBe(false);
   });
 
   it("fijan el id del elemento del player para que no se renombre por accidente", () => {
