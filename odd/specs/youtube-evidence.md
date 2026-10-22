@@ -1019,3 +1019,30 @@ estructurales en la implementación previa:
    devolvían `net::ERR_BLOCKED_BY_CLIENT` en los pings de ActiveView y disparaban el detector
    cliente (§9, §11), y se corrigen los selectores de clase del reproductor
    (`.video-ads.ytp-ad-module` y `.ytp-ad-progress-list`, que carecían del punto inicial).
+
+## §27. Listas de reproducción / Mix desde el Home: `navigateToAutoplayWatchEndpoint_` y rescate en el sitio (v1.0.1 -> v1.0.7)
+
+Las mediciones en vivo sobre Mixes (`&list=RD...`) desde el Home destaparon cuatro mecanismos que
+solo ocurren en navegación de listas:
+
+1. **Cupo y ventana de rescate por `videoId` (no por pestaña):** en un Mix de 27 temas (`rescueTicks:
+   549`), `status.playerRescues` alcanzaba `maxAttempts: 2` en los primeros temas y dejaba sin
+   rescate al resto de la sesión. `syncCurrentVideo` ahora reinicia `attemptsForVideo = 0`,
+   `lastAttemptAt = -config.retryGapMs` y `firstSeenAt = Date.now()` cada vez que cambia el
+   `videoId`.
+2. **Prioridad de URL (`videoIdOfLocation`) sobre `getVideoData()`:** al cambiar del tema #1 al
+   tema #2, cuando el tema #2 amanece con muro (sin `videoDetails`), `movie_player.getVideoData()`
+   conserva todavía el `video_id` rancio del tema #1. Consultar `videoIdOfLocation(locationHref)`
+   primero en `knownVideoId` garantiza rescatar el `?v=` actual de la barra de direcciones.
+3. **Prohibido asignar `video.currentTime = video.duration` en `skipActiveAd`:** cuando los anuncios
+   fueron vaciados, el `<video>` principal contiene la canción orgánica; saltar a `duration` dispara
+   el evento `ended` al primer segundo y fuerza a la playlist a pasar al siguiente tema.
+4. **Guardia `shouldBlockAutoplayJump` contra `_.q.navigateToAutoplayWatchEndpoint_` (v1.0.7,
+   `56b0261`):** el stack trace capturado en vivo sobre el evento `yt-navigate` probó que, al entrar
+   a un Mix desde el Home cuyo primer response viene flagueado (`errorCode: "auth"`), YouTube
+   invoca `_.q.navigateToAutoplayWatchEndpoint_` a los ~400 ms (antes del primer tick de 1 s del
+   timer) para saltar a `index=2`. Interceptar `yt-navigate` en fase de captura (`window` y
+   `document`) cuando el stack contiene `"navigateToAutoplayWatchEndpoint_"` y el `<video>` no está
+   al final del tema (`currentTime < duration - 3`), cancelar el evento (`stopImmediatePropagation`
+   + `preventDefault`) y ejecutar `loadVideoById(videoId)` en el acto frenó el salto en vivo y
+   reprodujo el tema 1 de principio a fin.

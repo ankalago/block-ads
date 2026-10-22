@@ -22,7 +22,7 @@ scriptlet engine beyond what YouTube needs, UI options beyond enable/disable.
 | 4 | core: compiler IR -> DNR ruleset, enforcing Chrome limits | done | 9ec85a8, b11ee24 |
 | 5 | apps/block-ads: MV3 manifest, service worker, popup, esbuild pipeline | done | d02e526 |
 | 6 | YouTube rules: network (DNR) + cosmetic, verified in real DOM | done | 845fd74, 14c8e07 |
-| 7 | Load unpacked in Chrome and verify a real ad video is blocked | done | e81d4b1, dbe0e0b |
+| 7 | Load unpacked in Chrome and verify a real ad video is blocked | done | e81d4b1, dbe0e0b, 56b0261 |
 
 ## Decisions
 
@@ -575,5 +575,18 @@ green on all 7 scenarios against a wall response without `videoDetails`. Evidenc
 - Bumped extension version to `1.0.0`, added manifest description and deterministic 16/32/48/128
   shield+play-cut PNG icons in `build.mjs`, redesigned `popup.html`, and added `pnpm pack:extension`.
 - Published public repository `https://github.com/ankalago/block-ads` with `.github/workflows/ci.yml`
-  that runs `pnpm check:ci` and automatically packages and publishes `block-ads-v1.0.0.zip` to
+  that runs `pnpm check:ci` and automatically packages and publishes `block-ads-v*.zip` to
   GitHub Releases and Actions artifacts on every push/merge to `main`.
+
+## Mix / Playlist navigation fixes (v1.0.1 -> v1.0.7, commit 56b0261)
+
+- Scoped `attemptsForVideo`, `lastAttemptAt`, and `firstSeenAt` per `videoId` in `player-rescue.ts`
+  so long Mix playlists never exhaust the 2-attempt rescue ceiling across tracks.
+- Prioritized `videoIdOfLocation(locationHref)` first in `knownVideoId` so SPA/playlist transitions
+  never rescue a stale `getVideoData().video_id` from the previous track.
+- Removed `video.currentTime = video.duration` from `skipActiveAd` so organic tracks never fire a
+  premature `ended` event.
+- Added `shouldBlockAutoplayJump` and capture-phase `yt-navigate` listeners on `window` and
+  `document` to block premature `_.q.navigateToAutoplayWatchEndpoint_` skips when a Mix track has
+  not finished playing (`currentTime < duration - 3`) and immediately rescue the current URL's
+  `videoId` via `loadVideoById`. Verified live in Paul's Chrome (`v1.0.7`, §27).
