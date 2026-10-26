@@ -46,3 +46,5 @@ youtube.com##ytd-in-feed-ad-layout-renderer
 youtube.com###masthead-ad
 youtube.com##.video-ads.ytp-ad-module
 youtube.com##.ytp-ad-progress-list
+youtube.com##.ytdMiniplayerPlayerContainerHost .ytdMiniplayerPlayerContainerPlayabilityError
+youtube.com##ytd-miniplayer yt-playability-error-supported-renderers

@@ -55,6 +55,8 @@ const VERIFIED_SELECTORS: readonly string[] = [
   "ytd-in-feed-ad-layout-renderer",
   ".video-ads.ytp-ad-module",
   ".ytp-ad-progress-list",
+  ".ytdMiniplayerPlayerContainerHost .ytdMiniplayerPlayerContainerPlayabilityError",
+  "ytd-miniplayer yt-playability-error-supported-renderers",
 ];
 
 describe("listas de reglas del paquete @block-ads/rules", () => {
@@ -85,6 +87,8 @@ describe("listas de reglas del paquete @block-ads/rules", () => {
     expect(unverified).toEqual([]);
     expect(selectors).toContain(".video-ads.ytp-ad-module");
     expect(selectors).toContain(".ytp-ad-progress-list");
+    expect(selectors).toContain(".ytdMiniplayerPlayerContainerHost .ytdMiniplayerPlayerContainerPlayabilityError");
+    expect(selectors).toContain("ytd-miniplayer yt-playability-error-supported-renderers");
   });
 
   it("no bloquea dominios enteros de telemetría ActiveView (googlesyndication/googleadservices) que disparan el muro en cliente", () => {

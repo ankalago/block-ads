@@ -556,9 +556,19 @@ export const installInnerTubePatch = (): CarrierStatus => {
       if (watchFlexy instanceof HTMLElement) {
         watchFlexy.removeAttribute("player-unavailable");
       }
+      const miniplayer = document.querySelector?.("ytd-miniplayer[player-unavailable]");
+      if (miniplayer instanceof HTMLElement) {
+        miniplayer.removeAttribute("player-unavailable");
+      }
       const errorScreen = document.querySelector?.("yt-playability-error-supported-renderers#error-screen");
       if (errorScreen instanceof HTMLElement) {
         errorScreen.style.display = "none";
+      }
+      const miniError = document.querySelector?.(
+        ".ytdMiniplayerPlayerContainerHost .ytdMiniplayerPlayerContainerPlayabilityError, ytd-miniplayer yt-playability-error-supported-renderers",
+      );
+      if (miniError instanceof HTMLElement) {
+        miniError.style.display = "none";
       }
     };
 
