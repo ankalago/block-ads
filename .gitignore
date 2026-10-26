@@ -33,3 +33,7 @@ coverage/
 
 # Debug
 debug.*.log
+
+# Engram: solo se versiona el nombre del proyecto
+.engram/*
+!.engram/config.json
