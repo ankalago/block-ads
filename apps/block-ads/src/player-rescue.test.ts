@@ -454,6 +454,33 @@ describe("el ciclo de rescate acotado", () => {
     expect(shouldBlockAutoplayJump(clickStack, startingPlayer)).toBe(false);
   });
 
+  it("arrancan la reproducción automáticamente (playVideo) una sola vez por videoId cuando el pre-roll vaciado deja el player en pausa", () => {
+    const status = rescueStatusSeed();
+    const playVideo = vi.fn();
+    const current = { videoId: "videoUno111" };
+    const pausedPlayer = (): RescuePlayer => ({
+      getPlayerResponse: () => ({
+        playabilityStatus: { status: "OK" },
+        videoDetails: { videoId: current.videoId },
+      }),
+      playVideo,
+    });
+
+    startPlayerRescue(pausedPlayer, vi.fn(), status);
+
+    vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.intervalMs);
+    expect(playVideo).toHaveBeenCalledTimes(1);
+
+    // En los ticks siguientes del mismo video no vuelve a llamar playVideo (respeta pausas manuales).
+    vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.intervalMs * 3);
+    expect(playVideo).toHaveBeenCalledTimes(1);
+
+    // Al pasar a un nuevo videoId vuelve a arrancarlo una vez.
+    current.videoId = "videoDos222";
+    vi.advanceTimersByTime(PLAYER_RESCUE_CONFIG.intervalMs);
+    expect(playVideo).toHaveBeenCalledTimes(2);
+  });
+
   it("fijan el id del elemento del player para que no se renombre por accidente", () => {
     expect(PLAYER_ELEMENT_ID).toBe("movie_player");
   });

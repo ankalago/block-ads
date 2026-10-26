@@ -26,6 +26,7 @@ export type RescuePlayer = {
   getPlayerResponse?: () => JsonValue | undefined;
   getVideoData?: () => JsonValue | undefined;
   loadVideoById?: (videoId: string) => void;
+  playVideo?: () => void;
   getPlaylistId?: () => string | null | undefined;
   classList?: { readonly contains: (token: string) => boolean };
   querySelector?: (selector: string) => RescueDomNode | null | undefined;
@@ -69,6 +70,7 @@ declare global {
     getPlayerResponse?: () => JsonValue | undefined;
     getVideoData?: () => JsonValue | undefined;
     loadVideoById?: (videoId: string) => void;
+    playVideo?: () => void;
     getPlaylistId?: () => string | null | undefined;
     getPlaylistData?: () => JsonValue | undefined;
     setPlaylistData?: (data: JsonValue) => void;
@@ -214,11 +216,13 @@ export const startPlayerRescue = (
     firstSeenAt: number;
     lastVideoId: string | undefined;
     attemptsForVideo: number;
+    autoStartedForVideo: boolean;
   } = {
     lastAttemptAt: -config.retryGapMs,
     firstSeenAt: -1,
     lastVideoId: undefined,
     attemptsForVideo: 0,
+    autoStartedForVideo: false,
   };
 
   const syncCurrentVideo = (videoId: string | undefined): void => {
@@ -227,6 +231,7 @@ export const startPlayerRescue = (
     state.attemptsForVideo = 0;
     state.lastAttemptAt = -config.retryGapMs;
     state.firstSeenAt = Date.now();
+    state.autoStartedForVideo = false;
   };
 
   const tryRescue = (player: RescuePlayer, videoId: string | undefined): void => {
@@ -236,8 +241,16 @@ export const startPlayerRescue = (
 
     state.lastAttemptAt = Date.now();
     state.attemptsForVideo += 1;
+    state.autoStartedForVideo = false;
     status.playerRescues += 1;
     attempt(player, videoId);
+  };
+
+  const autoStartOnce = (player: RescuePlayer): void => {
+    if (state.autoStartedForVideo) return;
+    if (isVideoNearEnd(player)) return;
+    state.autoStartedForVideo = true;
+    player.playVideo?.();
   };
 
   const inspectPlayer = (player: RescuePlayer): void => {
@@ -246,7 +259,11 @@ export const startPlayerRescue = (
     syncCurrentVideo(currentVideoId);
 
     const response = player.getPlayerResponse?.();
-    if (response === undefined || !hasEnforcementWall(response)) return;
+    if (response === undefined) return;
+    if (!hasEnforcementWall(response)) {
+      autoStartOnce(player);
+      return;
+    }
 
     status.rescueWallSeen = true;
     tryRescue(player, currentVideoId ?? state.lastVideoId);
