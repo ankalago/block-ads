@@ -1046,3 +1046,12 @@ solo ocurren en navegación de listas:
    al final del tema (`currentTime < duration - 3`), cancelar el evento (`stopImmediatePropagation`
    + `preventDefault`) y ejecutar `loadVideoById(videoId)` en el acto frenó el salto en vivo y
    reprodujo el tema 1 de principio a fin.
+5. **Auto-start una sola vez por `videoId` y nudge en `yt-navigate-finish` (v1.0.8, `24f6d3b`):**
+   cuando un pre-roll vaciado o un rescate reciente deja a `#movie_player` en estado `cued`/`paused`
+   en `0:00`, `autoStartOnce` invoca `player.playVideo()` una única vez por `videoId` (respetando
+   cualquier pausa manual posterior) y `yt-navigate-finish` dispara la inspección sin esperar al clic.
+6. **Limpieza del overlay de error en el Miniplayer (v1.0.9, `24dc8e9`):** al minimizar un video
+   hacia el miniplayer inferior derecho (`ytd-miniplayer`), YouTube montaba un overlay propio
+   (`.ytdMiniplayerPlayerContainerPlayabilityError` y `ytd-miniplayer
+   yt-playability-error-supported-renderers`). Se agregaron ambos selectores a `youtube.txt`
+   (`cosmetics.css`) y a `clearOuterErrorOverlay` en `innertube.ts`, confirmado en vivo por Paul.

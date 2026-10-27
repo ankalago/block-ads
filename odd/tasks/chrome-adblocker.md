@@ -590,3 +590,8 @@ green on all 7 scenarios against a wall response without `videoDetails`. Evidenc
   `document` to block premature `_.q.navigateToAutoplayWatchEndpoint_` skips when a Mix track has
   not finished playing (`currentTime < duration - 3`) and immediately rescue the current URL's
   `videoId` via `loadVideoById`. Verified live in Paul's Chrome (`v1.0.7`, §27).
+- Added one-shot `autoStartOnce` (`player.playVideo()`) per `videoId` and `yt-navigate-finish` nudge
+  (`v1.0.8`, `24f6d3b`) so playback starts automatically without requiring a manual click.
+- Added miniplayer error-overlay selectors (`.ytdMiniplayerPlayerContainerPlayabilityError` and
+  `ytd-miniplayer yt-playability-error-supported-renderers`) to `youtube.txt` and
+  `clearOuterErrorOverlay` (`v1.0.9`, `24dc8e9`). Verified live in Paul's Chrome.
